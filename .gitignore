@@ -1,0 +1,39 @@
+# Environment files (keep .example files)
+.env
+.env.local
+.env.production
+.env.development
+.env.staging
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.dist/
+.build/
+
+# Test & coverage
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# Editors & OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+Thumbs.db
+
+# Credentials
+credentials/
+*.pem
+*.key
+*.cer
