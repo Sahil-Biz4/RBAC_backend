@@ -44,6 +44,19 @@ async def get_me(current_user: User = Depends(get_current_user)) -> JSONResponse
     )
 
 
+@router.get("/perms-version", summary="Check permissions version")
+async def check_perms_version(current_user: User = Depends(get_current_user)) -> JSONResponse:
+    """Lightweight endpoint to check if the user's permissions have changed.
+    
+    Returns 401 with error_code=permissions_changed if the JWT's perms_version
+    is stale, triggering the frontend to refresh. Otherwise returns current version.
+    """
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"success": True, "perms_version": current_user.perms_version},
+    )
+
+
 @router.put(r.ME, summary="Update current user profile")
 async def update_me(
     body: UserUpdateIn,

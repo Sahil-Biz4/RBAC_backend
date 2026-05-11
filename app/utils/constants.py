@@ -115,6 +115,9 @@ class ErrorCodes:
     # Admin
     INVALID_ADMIN_SECRET = "invalid_admin_secret"
 
+    # Permissions sync
+    PERMISSIONS_CHANGED = "permissions_changed"
+
 
 # ── Response Messages ──────────────────────────────────────────────────────
 class ResponseMessages:
@@ -165,3 +168,6 @@ class ResponseMessages:
     FORBIDDEN = "You do not have permission to perform this action."
     PERMISSION_DENIED = "You lack the required permission: {permission}."
     ROLE_DENIED = "You lack the required role: {role}."
+
+    # Permissions sync
+    PERMISSIONS_CHANGED = "Your permissions have changed. Please re-authenticate."

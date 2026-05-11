@@ -4,23 +4,21 @@ from fastapi import APIRouter, Depends, HTTPException, Path, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.rbac import require_any_role
+from app.core.auth.rbac import require_permission
 from app.core.constants import APITags, ResponseFields
 from app.core.database import get_db
 from app.features.admin import repository as repo
 from app.features.admin.routes_definition import routes as r
 from app.features.admin.schemas import AssignPermissionIn, AssignRoleIn, PermissionIn, RoleIn
-from app.utils.constants import Permissions, ResponseMessages, RoleNames
+from app.utils.constants import Permissions, ResponseMessages
 
 
-_admin_gate = [Depends(require_any_role(RoleNames.ADMIN_ROLES))]
-
-router = APIRouter(prefix=r.BASE, tags=[APITags.ADMIN], dependencies=_admin_gate)
+router = APIRouter(prefix=r.BASE, tags=[APITags.ADMIN])
 
 
 # ── Roles ──────────────────────────────────────────────────────────────────
 
-@router.get(r.ROLES, summary="List all roles")
+@router.get(r.ROLES, summary="List all roles", dependencies=[Depends(require_permission(Permissions.ROLES_READ))])
 async def list_roles(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     roles = await repo.get_all_roles(db=db)
     return JSONResponse(
@@ -32,7 +30,16 @@ async def list_roles(db: AsyncSession = Depends(get_db)) -> JSONResponse:
                     "id": role.id,
                     "name": role.name,
                     "description": role.description,
-                    "permissions": [rp.permission.name for rp in role.role_permissions],
+                    "permissions": [
+                        {
+                            "id": rp.permission.id,
+                            "name": rp.permission.name,
+                            "resource": rp.permission.resource,
+                            "action": rp.permission.action,
+                            "description": rp.permission.description,
+                        }
+                        for rp in role.role_permissions
+                    ],
                 }
                 for role in roles
             ],
@@ -40,7 +47,7 @@ async def list_roles(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     )
 
 
-@router.post(r.ROLES, status_code=status.HTTP_201_CREATED, summary="Create a role")
+@router.post(r.ROLES, status_code=status.HTTP_201_CREATED, summary="Create a role", dependencies=[Depends(require_permission(Permissions.ROLES_WRITE))])
 async def create_role(body: RoleIn, db: AsyncSession = Depends(get_db)) -> JSONResponse:
     existing = await repo.get_role_by_name(db=db, name=body.name)
     if existing:
@@ -58,7 +65,7 @@ async def create_role(body: RoleIn, db: AsyncSession = Depends(get_db)) -> JSONR
     )
 
 
-@router.put(r.ROLE_BY_ID, summary="Update a role")
+@router.put(r.ROLE_BY_ID, summary="Update a role", dependencies=[Depends(require_permission(Permissions.ROLES_WRITE))])
 async def update_role(
     body: RoleIn,
     role_id: int = Path(..., gt=0),
@@ -90,7 +97,7 @@ async def update_role(
     )
 
 
-@router.delete(r.ROLE_BY_ID, summary="Delete a role")
+@router.delete(r.ROLE_BY_ID, summary="Delete a role", dependencies=[Depends(require_permission(Permissions.ROLES_DELETE))])
 async def delete_role(
     role_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
@@ -115,7 +122,7 @@ async def delete_role(
 
 # ── Role ↔ Permission assignments ─────────────────────────────────────────
 
-@router.post(r.ROLE_PERMISSIONS, summary="Assign permission to role")
+@router.post(r.ROLE_PERMISSIONS, summary="Assign permission to role", dependencies=[Depends(require_permission(Permissions.ROLES_WRITE))])
 async def assign_permission_to_role(
     body: AssignPermissionIn,
     role_id: int = Path(..., gt=0),
@@ -145,7 +152,7 @@ async def assign_permission_to_role(
     )
 
 
-@router.delete(r.ROLE_PERMISSION_BY_ID, summary="Revoke permission from role")
+@router.delete(r.ROLE_PERMISSION_BY_ID, summary="Revoke permission from role", dependencies=[Depends(require_permission(Permissions.ROLES_WRITE))])
 async def revoke_permission_from_role(
     role_id: int = Path(..., gt=0),
     permission_id: int = Path(..., gt=0),
@@ -165,7 +172,7 @@ async def revoke_permission_from_role(
 
 # ── Permissions ────────────────────────────────────────────────────────────
 
-@router.get(r.PERMISSIONS, summary="List all permissions")
+@router.get(r.PERMISSIONS, summary="List all permissions", dependencies=[Depends(require_permission(Permissions.PERMISSIONS_READ))])
 async def list_permissions(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     permissions = await repo.get_all_permissions(db=db)
     return JSONResponse(
@@ -180,7 +187,7 @@ async def list_permissions(db: AsyncSession = Depends(get_db)) -> JSONResponse:
     )
 
 
-@router.post(r.PERMISSIONS, status_code=status.HTTP_201_CREATED, summary="Create a permission")
+@router.post(r.PERMISSIONS, status_code=status.HTTP_201_CREATED, summary="Create a permission", dependencies=[Depends(require_permission(Permissions.PERMISSIONS_WRITE))])
 async def create_permission(body: PermissionIn, db: AsyncSession = Depends(get_db)) -> JSONResponse:
     existing = await repo.get_permission_by_name(db=db, name=body.name)
     if existing:
@@ -206,7 +213,7 @@ async def create_permission(body: PermissionIn, db: AsyncSession = Depends(get_d
     )
 
 
-@router.delete(r.PERMISSION_BY_ID, summary="Delete a permission")
+@router.delete(r.PERMISSION_BY_ID, summary="Delete a permission", dependencies=[Depends(require_permission(Permissions.PERMISSIONS_DELETE))])
 async def delete_permission(
     permission_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
@@ -226,7 +233,7 @@ async def delete_permission(
 
 # ── User ↔ Role assignments ────────────────────────────────────────────────
 
-@router.get(r.USER_ROLES, summary="Get roles assigned to a user")
+@router.get(r.USER_ROLES, summary="Get roles assigned to a user", dependencies=[Depends(require_permission(Permissions.USERS_READ))])
 async def get_user_roles(
     user_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
@@ -246,7 +253,7 @@ async def get_user_roles(
     )
 
 
-@router.post(r.USER_ROLES, summary="Assign role to user")
+@router.post(r.USER_ROLES, summary="Assign role to user", dependencies=[Depends(require_permission(Permissions.USERS_WRITE))])
 async def assign_role_to_user(
     body: AssignRoleIn,
     user_id: int = Path(..., gt=0),
@@ -276,7 +283,7 @@ async def assign_role_to_user(
     )
 
 
-@router.delete(r.USER_ROLE_BY_ID, summary="Revoke role from user")
+@router.delete(r.USER_ROLE_BY_ID, summary="Revoke role from user", dependencies=[Depends(require_permission(Permissions.USERS_WRITE))])
 async def revoke_role_from_user(
     user_id: int = Path(..., gt=0),
     role_id: int = Path(..., gt=0),

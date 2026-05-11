@@ -21,18 +21,23 @@ def create_access_token(
     email: str,
     roles: list[str],
     permissions: list[str],
+    perms_version: int,
     expires_minutes: int | None = None,
 ) -> tuple[str, str]:
     """Create a signed JWT access token embedding roles and permissions.
 
     Roles and permissions are cached in the token so every request avoids
     a DB round-trip for authorization checks. They are refreshed on token renewal.
+    ``perms_version`` is a monotonic counter on the User row — if it mismatches
+    the value in a presented token the request is rejected with 401 so the client
+    immediately re-fetches a fresh token with the updated claims.
 
     Args:
         subject: User ID stored in the 'sub' claim.
         email: User email stored in the 'email' claim.
         roles: List of role names assigned to the user.
         permissions: Flattened list of all permission strings for those roles.
+        perms_version: Current permissions version from the users table.
         expires_minutes: Optional override for expiry. Defaults to settings value.
 
     Returns:
@@ -47,6 +52,7 @@ def create_access_token(
         "email": email,
         "roles": roles,
         "permissions": permissions,
+        "perms_version": perms_version,
         "jti": jti,
         "scope": JWT_SCOPE_ACCESS,
         "exp": int(expire.timestamp()),

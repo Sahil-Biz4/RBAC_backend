@@ -1,6 +1,6 @@
 """Admin feature database operations — roles, permissions, and assignments."""
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -104,6 +104,8 @@ async def assign_permission_to_role(db: AsyncSession, role_id: int, permission_i
     if existing.scalars().first():
         return False
     db.add(RolePermission(role_id=role_id, permission_id=permission_id))
+    subq = select(UserRole.user_id).where(UserRole.role_id == role_id).scalar_subquery()
+    await db.execute(update(User).where(User.id.in_(subq)).values(perms_version=User.perms_version + 1))
     await db.commit()
     return True
 
@@ -119,6 +121,8 @@ async def revoke_permission_from_role(db: AsyncSession, role_id: int, permission
     if not rp:
         return False
     await db.delete(rp)
+    subq = select(UserRole.user_id).where(UserRole.role_id == role_id).scalar_subquery()
+    await db.execute(update(User).where(User.id.in_(subq)).values(perms_version=User.perms_version + 1))
     await db.commit()
     return True
 
@@ -142,6 +146,7 @@ async def assign_role_to_user(db: AsyncSession, user_id: int, role_id: int) -> b
     if existing.scalars().first():
         return False
     db.add(UserRole(user_id=user_id, role_id=role_id))
+    await db.execute(update(User).where(User.id == user_id).values(perms_version=User.perms_version + 1))
     await db.commit()
     return True
 
@@ -155,5 +160,6 @@ async def revoke_role_from_user(db: AsyncSession, user_id: int, role_id: int) ->
     if not ur:
         return False
     await db.delete(ur)
+    await db.execute(update(User).where(User.id == user_id).values(perms_version=User.perms_version + 1))
     await db.commit()
     return True

@@ -99,7 +99,8 @@ async def login_user(db: AsyncSession, email: str, password: str) -> dict:
     roles, permissions = await repo.get_user_roles_and_permissions(db=db, user_id=user.id)
 
     access_token, _ = create_access_token(
-        subject=user.id, email=user.email, roles=roles, permissions=permissions
+        subject=user.id, email=user.email, roles=roles, permissions=permissions,
+        perms_version=user.perms_version,
     )
     refresh_token, refresh_jti = create_refresh_token(subject=user.id, email=user.email)
 
@@ -147,7 +148,8 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> dict:
     roles, permissions = await repo.get_user_roles_and_permissions(db=db, user_id=user.id)
 
     new_access, _ = create_access_token(
-        subject=user.id, email=user.email, roles=roles, permissions=permissions
+        subject=user.id, email=user.email, roles=roles, permissions=permissions,
+        perms_version=user.perms_version,
     )
     new_refresh, new_jti = create_refresh_token(subject=user.id, email=user.email)
 
