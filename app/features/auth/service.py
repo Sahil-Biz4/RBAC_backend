@@ -92,7 +92,24 @@ async def login_user(db: AsyncSession, email: str, password: str) -> dict:
         raise AuthError(ErrorCodes.INVALID_CREDENTIALS, ResponseMessages.INVALID_CREDENTIALS)
 
     if not user.is_email_verified:
-        raise ForbiddenError(ErrorCodes.EMAIL_NOT_VERIFIED, ResponseMessages.EMAIL_NOT_VERIFIED)
+        # Send OTP for email verification instead of blocking login
+        await repo.invalidate_user_otps(db=db, user_id=user.id, purpose=OtpPurpose.EMAIL_VERIFICATION)
+        otp = generate_numeric_otp()
+        await repo.create_email_otp(
+            db=db,
+            user_id=user.id,
+            otp_hash=hash_otp(otp),
+            purpose=OtpPurpose.EMAIL_VERIFICATION,
+            expire_minutes=settings.otp_expire_minutes,
+        )
+        await send_otp_email(to_email=email, otp=otp, purpose="email verification")
+        return {
+            "success": False,
+            "error_code": ErrorCodes.EMAIL_NOT_VERIFIED,
+            "message": ResponseMessages.EMAIL_NOT_VERIFIED,
+            "email_verification_required": True,
+            "email": email,
+        }
 
     if not user.is_active:
         raise ForbiddenError(ErrorCodes.ACCOUNT_INACTIVE, ResponseMessages.ACCOUNT_INACTIVE)

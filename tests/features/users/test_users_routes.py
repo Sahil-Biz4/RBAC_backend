@@ -1,0 +1,207 @@
+"""Integration tests for users feature routes."""
+
+import pytest
+from fastapi import status
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.user import User
+from app.utils.constants import RoleNames
+
+
+def _auth(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+# ── GET /me ────────────────────────────────────────────────────────────────
+
+class TestGetMe:
+    async def test_returns_current_user_profile(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        resp = await client.get("/api/v1/users/me", headers=_auth(user_token))
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["success"] is True
+        assert data["user"]["email"] == sample_user.email
+        assert data["user"]["name"] == sample_user.name
+
+    async def test_response_includes_roles(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        resp = await client.get("/api/v1/users/me", headers=_auth(user_token))
+        assert resp.status_code == status.HTTP_200_OK
+        roles = resp.json()["user"]["roles"]
+        assert any(r["name"] == RoleNames.USER for r in roles)
+
+    async def test_without_auth_returns_401(self, client: AsyncClient):
+        resp = await client.get("/api/v1/users/me")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    async def test_invalid_token_returns_401(self, client: AsyncClient):
+        resp = await client.get(
+            "/api/v1/users/me", headers={"Authorization": "Bearer garbage"}
+        )
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ── PUT /me ────────────────────────────────────────────────────────────────
+
+class TestUpdateMe:
+    async def test_update_name_returns_200(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        resp = await client.put(
+            "/api/v1/users/me",
+            headers=_auth(user_token),
+            json={"name": "Updated Name"},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["user"]["name"] == "Updated Name"
+
+    async def test_name_too_short_returns_422(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        resp = await client.put(
+            "/api/v1/users/me",
+            headers=_auth(user_token),
+            json={"name": "X"},
+        )
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    async def test_null_name_is_no_op_and_returns_200(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        """Omitting name should succeed without changing anything."""
+        resp = await client.put(
+            "/api/v1/users/me",
+            headers=_auth(user_token),
+            json={"name": None},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+
+    async def test_without_auth_returns_401(self, client: AsyncClient):
+        resp = await client.put("/api/v1/users/me", json={"name": "Hacker"})
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ── GET /users (list) ──────────────────────────────────────────────────────
+
+class TestListUsers:
+    async def test_admin_with_users_read_returns_paginated_list(
+        self, client: AsyncClient, sample_user: User, admin_token: str
+    ):
+        resp = await client.get("/api/v1/users", headers=_auth(admin_token))
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert "users" in data
+        assert "total" in data
+        assert data["total"] >= 1
+
+    async def test_regular_user_without_permission_returns_403(
+        self, client: AsyncClient, user_token: str
+    ):
+        resp = await client.get("/api/v1/users", headers=_auth(user_token))
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_without_auth_returns_401(self, client: AsyncClient):
+        resp = await client.get("/api/v1/users")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+    async def test_pagination_params_are_respected(
+        self, client: AsyncClient, admin_token: str
+    ):
+        resp = await client.get(
+            "/api/v1/users", headers=_auth(admin_token), params={"skip": 0, "limit": 1}
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert len(resp.json()["users"]) <= 1
+
+
+# ── GET /users/{id} ────────────────────────────────────────────────────────
+
+class TestGetUser:
+    async def test_get_existing_user_returns_200(
+        self, client: AsyncClient, sample_user: User, admin_token: str
+    ):
+        resp = await client.get(
+            f"/api/v1/users/{sample_user.id}", headers=_auth(admin_token)
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["user"]["email"] == sample_user.email
+
+    async def test_get_nonexistent_user_returns_404(
+        self, client: AsyncClient, admin_token: str
+    ):
+        resp = await client.get("/api/v1/users/99999", headers=_auth(admin_token))
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_without_permission_returns_403(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        resp = await client.get(
+            f"/api/v1/users/{sample_user.id}", headers=_auth(user_token)
+        )
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_without_auth_returns_401(self, client: AsyncClient):
+        resp = await client.get("/api/v1/users/1")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ── DELETE /users/{id} ─────────────────────────────────────────────────────
+
+class TestDeleteUser:
+    async def test_admin_can_delete_other_user(
+        self, client: AsyncClient, sample_user: User, admin_token: str
+    ):
+        resp = await client.delete(
+            f"/api/v1/users/{sample_user.id}", headers=_auth(admin_token)
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["success"] is True
+
+    async def test_cannot_delete_self_returns_409(
+        self, client: AsyncClient, sample_admin_user: User, admin_token: str
+    ):
+        """Admin trying to delete their own account must be rejected."""
+        resp = await client.delete(
+            f"/api/v1/users/{sample_admin_user.id}", headers=_auth(admin_token)
+        )
+        assert resp.status_code == status.HTTP_409_CONFLICT
+
+    async def test_delete_nonexistent_user_returns_404(
+        self, client: AsyncClient, admin_token: str
+    ):
+        resp = await client.delete("/api/v1/users/99999", headers=_auth(admin_token))
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    async def test_without_permission_returns_403(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        resp = await client.delete(
+            f"/api/v1/users/{sample_user.id}", headers=_auth(user_token)
+        )
+        assert resp.status_code == status.HTTP_403_FORBIDDEN
+
+    async def test_without_auth_returns_401(self, client: AsyncClient):
+        resp = await client.delete("/api/v1/users/1")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+# ── GET /users/perms-version ───────────────────────────────────────────────
+
+class TestPermsVersion:
+    async def test_returns_current_perms_version(
+        self, client: AsyncClient, sample_user: User, user_token: str
+    ):
+        resp = await client.get("/api/v1/users/perms-version", headers=_auth(user_token))
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["success"] is True
+        assert "perms_version" in data
+        assert data["perms_version"] == sample_user.perms_version
+
+    async def test_without_auth_returns_401(self, client: AsyncClient):
+        resp = await client.get("/api/v1/users/perms-version")
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED

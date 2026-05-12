@@ -67,10 +67,6 @@ class ForgotPasswordIn(BaseModel):
     email: EmailStr
 
 
-class RefreshIn(BaseModel):
-    refresh_token: str
-
-
 class ChangePasswordIn(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=64)
     confirm_password: str = Field(..., min_length=8, max_length=64)

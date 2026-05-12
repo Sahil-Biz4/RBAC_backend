@@ -85,6 +85,12 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     cors_origins_raw: str = Field(default="", alias="CORS_ORIGINS")
+    cors_allowed_methods_raw: str = Field(
+        default="GET,POST,PUT,DELETE,PATCH", alias="CORS_ALLOWED_METHODS"
+    )
+    cors_allowed_headers_raw: str = Field(
+        default="Content-Type,Authorization", alias="CORS_ALLOWED_HEADERS"
+    )
 
     # ── Admin ─────────────────────────────────────────────────────────────────
     admin_secret_key: str = Field(default="", alias="ADMIN_SECRET_KEY")
@@ -120,6 +126,18 @@ class Settings(BaseSettings):
         if not self.cors_origins_raw:
             return []
         return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def cors_allowed_methods(self) -> list[str]:
+        """Parse the comma-separated CORS_ALLOWED_METHODS string into a list."""
+        return [m.strip() for m in self.cors_allowed_methods_raw.split(",") if m.strip()]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def cors_allowed_headers(self) -> list[str]:
+        """Parse the comma-separated CORS_ALLOWED_HEADERS string into a list."""
+        return [h.strip() for h in self.cors_allowed_headers_raw.split(",") if h.strip()]
 
     @computed_field  # type: ignore[misc]
     @property

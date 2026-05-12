@@ -24,4 +24,5 @@ class RefreshToken(TimestampMixin, Base):
     is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     expires_at: Mapped[DateTime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    user: Mapped["User"] = relationship("User", back_populates="refresh_tokens")  # noqa: F821
+    # Note: This table is deprecated - refresh tokens are now stored in Redis
+    # Keeping the model for backward compatibility with existing migrations

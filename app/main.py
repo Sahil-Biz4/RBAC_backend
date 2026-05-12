@@ -8,6 +8,8 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +21,6 @@ configure_logging(environment=settings.environment)
 
 from app.core.constants import (
     APITags,
-    CORS_WILDCARD,
     ErrorMessages,
     HealthCheckFields,
     HealthCheckStatus,
@@ -27,6 +28,7 @@ from app.core.constants import (
     RoutePaths,
 )
 from app.core.database import get_db
+from app.core.limiter import limiter
 from app.core.middleware.auth import AuthMiddleware
 from app.core.middleware.request_logging import RequestLoggingMiddleware
 from app.core.middleware.security_headers import SecurityHeadersMiddleware
@@ -76,6 +78,9 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         """Catch all unhandled exceptions and return a safe error response."""
@@ -103,8 +108,8 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=settings.cors_origins,
             allow_credentials=True,
-            allow_methods=[CORS_WILDCARD],
-            allow_headers=[CORS_WILDCARD],
+            allow_methods=settings.cors_allowed_methods,
+            allow_headers=settings.cors_allowed_headers,
         )
 
     @app.get(RoutePaths.HEALTH, tags=[APITags.HEALTH], summary="Health check")

@@ -19,18 +19,18 @@ class RoleOut(BaseModel):
 
 # Whitelist of allowed resources (features that are implemented)
 ALLOWED_RESOURCES = {
-    'users',
-    'roles', 
-    'permissions',
-    'profile',
+    "users",
+    "roles",
+    "permissions",
+    "profile",
 }
 
 # Whitelist of allowed actions (standard CRUD operations)
 ALLOWED_ACTIONS = {
-    'read',
-    'create',
-    'update',
-    'delete',
+    "read",
+    "create",
+    "update",
+    "delete",
 }
 
 
@@ -40,7 +40,7 @@ class PermissionIn(BaseModel):
     action: str = Field(..., min_length=2, max_length=50)
     description: str | None = Field(default=None, max_length=255)
 
-    @field_validator('resource')
+    @field_validator("resource")
     @classmethod
     def validate_resource_implemented(cls, v: str) -> str:
         """Only allow creating permissions for implemented features."""
@@ -52,7 +52,7 @@ class PermissionIn(BaseModel):
             )
         return v
 
-    @field_validator('action')
+    @field_validator("action")
     @classmethod
     def validate_action_allowed(cls, v: str) -> str:
         """Only allow standard CRUD actions."""
@@ -63,7 +63,7 @@ class PermissionIn(BaseModel):
             )
         return v
 
-    @field_validator('name')
+    @field_validator("name")
     @classmethod
     def validate_name_matches_parts(cls, v: str, info) -> str:
         """Ensure name matches resource:action format."""

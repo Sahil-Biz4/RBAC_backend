@@ -12,6 +12,8 @@ _SECURITY_HEADERS: dict[str, str] = {
     "Referrer-Policy": "strict-origin-when-cross-origin",
     "Cache-Control": "no-store",
     "Permissions-Policy": "geolocation=(), microphone=(), camera=()",
+    "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+    "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
 }
 
 

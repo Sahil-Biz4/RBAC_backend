@@ -31,44 +31,6 @@ class OtpPurpose(str, Enum):
     PASSWORD_RESET = "password_reset"
 
 
-# ── Audit Events ───────────────────────────────────────────────────────────
-class AuditEvent(str, Enum):
-    """Machine-readable codes for all security-relevant audit log events."""
-
-    # Authentication
-    LOGIN_SUCCESS = "LOGIN_SUCCESS"
-    LOGIN_FAILED = "LOGIN_FAILED"
-    LOGOUT = "LOGOUT"
-    REGISTER = "REGISTER"
-    REGISTER_ADMIN = "REGISTER_ADMIN"
-
-    # Session
-    SESSION_REVOKED = "SESSION_REVOKED"
-    ALL_SESSIONS_REVOKED = "ALL_SESSIONS_REVOKED"
-    TOKEN_REFRESHED = "TOKEN_REFRESHED"
-    TOKEN_REPLAY_DETECTED = "TOKEN_REPLAY_DETECTED"
-
-    # Email / OTP
-    EMAIL_VERIFIED = "EMAIL_VERIFIED"
-    OTP_SENT = "OTP_SENT"
-    OTP_RESENT = "OTP_RESENT"
-    OTP_VERIFIED = "OTP_VERIFIED"
-    OTP_FAILED = "OTP_FAILED"
-    OTP_MAX_ATTEMPTS = "OTP_MAX_ATTEMPTS"
-
-    # Password
-    PASSWORD_RESET_REQUESTED = "PASSWORD_RESET_REQUESTED"
-    PASSWORD_RESET = "PASSWORD_RESET"
-    PASSWORD_CHANGED = "PASSWORD_CHANGED"
-
-    # Admin
-    ROLE_ASSIGNED = "ROLE_ASSIGNED"
-    ROLE_REVOKED = "ROLE_REVOKED"
-    PERMISSION_ASSIGNED = "PERMISSION_ASSIGNED"
-    PERMISSION_REVOKED = "PERMISSION_REVOKED"
-    USER_DELETED = "USER_DELETED"
-
-
 # ── CORS ───────────────
 CORS_WILDCARD = "*"
 

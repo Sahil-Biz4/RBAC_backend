@@ -50,3 +50,44 @@ async def soft_delete_user(db: AsyncSession, user: User) -> None:
     user.deleted_at = datetime.now(UTC)
     user.is_active = False
     await db.commit()
+
+
+async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
+    """Fetch a user by email address."""
+    result = await db.execute(
+        select(User).where(User.email == email, User.deleted_at.is_(None))
+    )
+    return result.scalars().first()
+
+
+async def create_user(
+    db: AsyncSession, name: str, email: str, password_hash: str, is_active: bool = True
+) -> User:
+    """Create a new user."""
+    user = User(
+        name=name,
+        email=email,
+        password_hash=password_hash,
+        is_active=is_active,
+        is_email_verified=False,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user, attribute_names=["user_roles"])
+    return user
+
+
+async def update_user(
+    db: AsyncSession, user: User, name: str | None = None, 
+    email: str | None = None, is_active: bool | None = None
+) -> User:
+    """Update user details."""
+    if name is not None:
+        user.name = name
+    if email is not None:
+        user.email = email
+    if is_active is not None:
+        user.is_active = is_active
+    await db.commit()
+    await db.refresh(user)
+    return user

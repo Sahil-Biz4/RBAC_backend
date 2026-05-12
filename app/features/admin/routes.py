@@ -81,8 +81,6 @@ async def update_role(
         role = await repo.get_role_by_id(db=db, role_id=role_id)
         if not role:
             raise NotFoundError(ErrorCodes.ROLE_NOT_FOUND, ResponseMessages.ROLE_NOT_FOUND)
-        if role.name in RoleNames.ALL and body.name != role.name:
-            raise BadRequestError(ErrorCodes.FORBIDDEN, ResponseMessages.CANNOT_DELETE_DEFAULT_ROLE)
         role = await repo.update_role(db=db, role=role, name=body.name, description=body.description)
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -109,8 +107,6 @@ async def delete_role(
         role = await repo.get_role_by_id(db=db, role_id=role_id)
         if not role:
             raise NotFoundError(ErrorCodes.ROLE_NOT_FOUND, ResponseMessages.ROLE_NOT_FOUND)
-        if role.name in RoleNames.ALL:
-            raise BadRequestError(ErrorCodes.FORBIDDEN, ResponseMessages.CANNOT_DELETE_DEFAULT_ROLE)
         await repo.delete_role(db=db, role=role)
         return JSONResponse(
             status_code=status.HTTP_200_OK,

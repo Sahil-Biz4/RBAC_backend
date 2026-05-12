@@ -32,3 +32,18 @@ class UserUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=100)
 
 
+class CreateUserIn(BaseModel):
+    """Schema for creating a new user (admin only)."""
+    
+    name: str = Field(min_length=2, max_length=100)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=100)
+    is_active: bool = True
+
+
+class AdminUserUpdateIn(BaseModel):
+    """Schema for updating user details (admin only)."""
+    
+    name: str | None = Field(default=None, min_length=2, max_length=100)
+    email: EmailStr | None = None
+    is_active: bool | None = None

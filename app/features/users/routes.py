@@ -12,7 +12,7 @@ from app.core.exceptions import AppError
 from app.features.users import repository as repo
 from app.features.users import service
 from app.features.users.routes_definition import routes as r
-from app.features.users.schemas import UserOut, UserUpdateIn
+from app.features.users.schemas import AdminUserUpdateIn, CreateUserIn, UserOut, UserUpdateIn
 from app.models.user import User
 from app.utils.constants import Permissions, ResponseCodes
 
@@ -72,6 +72,29 @@ async def update_me(
     )
 
 
+@router.post(
+    "",
+    summary="Create user (admin)",
+    dependencies=[Depends(require_permission(Permissions.USERS_CREATE))],
+)
+async def create_user(
+    body: CreateUserIn,
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Create a new user. Requires ``users:create`` permission."""
+    try:
+        user = await service.create_user(
+            db=db, name=body.name, email=body.email, 
+            password=body.password, is_active=body.is_active
+        )
+    except AppError as exc:
+        raise exc.as_http_exception()
+    return JSONResponse(
+        status_code=status.HTTP_201_CREATED,
+        content={"success": True, "user": _user_out(user)},
+    )
+
+
 @router.get(
     "",
     summary="List all users (admin)",
@@ -79,7 +102,7 @@ async def update_me(
 )
 async def list_users(
     skip: int = 0,
-    limit: int = 50,
+    limit: int = 20,
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Return a paginated list of all users. Requires ``users:read`` permission."""
@@ -90,7 +113,14 @@ async def list_users(
     users_out = [_user_out(u) for u in result["users"]]
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={"success": True, "users": users_out, "total": result["total"]},
+        content={
+            "success": True,
+            "users": users_out,
+            "total": result["total"],
+            "skip": result["skip"],
+            "limit": result["limit"],
+            "has_next": result["has_next"],
+        },
     )
 
 
@@ -106,6 +136,30 @@ async def get_user(
     """Return a single user by ID. Requires ``users:read`` permission."""
     try:
         user = await service.get_user_by_id(db=db, user_id=user_id)
+    except AppError as exc:
+        raise exc.as_http_exception()
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"success": True, "user": _user_out(user)},
+    )
+
+
+@router.put(
+    r.BY_ID,
+    summary="Update user (admin)",
+    dependencies=[Depends(require_permission(Permissions.USERS_UPDATE))],
+)
+async def update_user(
+    body: AdminUserUpdateIn,
+    user_id: int = Path(..., gt=0),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Update user details. Requires ``users:update`` permission."""
+    try:
+        user = await service.update_user(
+            db=db, user_id=user_id, name=body.name, 
+            email=body.email, is_active=body.is_active
+        )
     except AppError as exc:
         raise exc.as_http_exception()
     return JSONResponse(
