@@ -5,6 +5,8 @@ Services raise domain exceptions (from ``app.core.exceptions``) rather than
 to convert them, keeping HTTP concerns out of this layer.
 """
 
+import logging
+
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.jwt_handler import (
@@ -15,12 +17,14 @@ from app.core.auth.jwt_handler import (
 )
 from app.core.auth.password import hash_password, needs_rehash, verify_password
 from app.core.config.settings import settings
-from app.core.constants import OTP_PURPOSE_EMAIL_VERIFY, OTP_PURPOSE_PASSWORD_RESET
+from app.core.constants import OtpPurpose
 from app.core.exceptions import AuthError, ConflictError, ForbiddenError, NotFoundError, RateLimitError
 from app.core.services.email_service import send_otp_email
 from app.features.auth import repository as repo
 from app.utils.constants import ErrorCodes, ResponseCodes, ResponseMessages, RoleNames
 from app.utils.helpers import generate_numeric_otp, hash_otp, verify_otp_hash
+
+logger = logging.getLogger(__name__)
 
 
 async def register_user(db: AsyncSession, name: str, email: str, password: str) -> dict:
@@ -34,16 +38,16 @@ async def register_user(db: AsyncSession, name: str, email: str, password: str) 
         raise ConflictError(ErrorCodes.EMAIL_EXISTS, ResponseMessages.EMAIL_ALREADY_EXISTS)
 
     pw_hash = hash_password(password)
-    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash)
+    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash, commit=False)
 
-    await repo.assign_role_to_user(db=db, user_id=user.id, role_name=RoleNames.DEFAULT)
+    await repo.assign_role_to_user(db=db, user_id=user.id, role_name=RoleNames.DEFAULT, commit=False)
 
     otp = generate_numeric_otp()
     await repo.create_email_otp(
         db=db,
         user_id=user.id,
         otp_hash=hash_otp(otp),
-        purpose=OTP_PURPOSE_EMAIL_VERIFY,
+        purpose=OtpPurpose.EMAIL_VERIFICATION,
         expire_minutes=settings.otp_expire_minutes,
     )
 
@@ -67,9 +71,8 @@ async def register_admin(db: AsyncSession, name: str, email: str, password: str,
         raise ConflictError(ErrorCodes.EMAIL_EXISTS, ResponseMessages.EMAIL_ALREADY_EXISTS)
 
     pw_hash = hash_password(password)
-    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash)
+    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash, commit=False)
     user.is_email_verified = True
-    await db.commit()
 
     await repo.assign_role_to_user(db=db, user_id=user.id, role_name=RoleNames.ADMIN)
 
@@ -179,8 +182,8 @@ async def logout_user(db: AsyncSession, refresh_token: str) -> dict:
             token_record = await repo.get_refresh_token_by_jti(db=db, jti=jti)
             if token_record:
                 await repo.revoke_refresh_token(db=db, token=token_record)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("logout_user: token revocation failed — %s", exc)
 
     return {"success": True, "success_code": ResponseCodes.LOGOUT_SUCCESS}
 
@@ -213,18 +216,17 @@ async def verify_otp(db: AsyncSession, email: str, otp: str, purpose: str) -> di
     if not user.is_email_verified:
         await repo.verify_user_email(db=db, user=user)
 
-    if purpose == OTP_PURPOSE_EMAIL_VERIFY:
+    if purpose == OtpPurpose.EMAIL_VERIFICATION:
         roles, permissions = await repo.get_user_roles_and_permissions(db=db, user_id=user.id)
         access_token, _ = create_access_token(
-            subject=user.id, email=user.email, roles=roles, permissions=permissions
+            subject=user.id, email=user.email, roles=roles, permissions=permissions,
+            perms_version=user.perms_version,
         )
         refresh_token, refresh_jti = create_refresh_token(subject=user.id, email=user.email)
-        token_family = str(uuid.uuid4())
-        await repo.create_session(
+        await repo.create_refresh_token_record(
             db=db,
             user_id=user.id,
             jti=refresh_jti,
-            token_family=token_family,
             expire_minutes=settings.jwt_refresh_token_expire_minutes,
         )
         return {
@@ -287,17 +289,17 @@ async def forgot_password(db: AsyncSession, email: str) -> dict:
         resend_count = await repo.count_recent_resends(
             db=db,
             user_id=user.id,
-            purpose=OTP_PURPOSE_PASSWORD_RESET,
+            purpose=OtpPurpose.PASSWORD_RESET,
             window_minutes=settings.otp_resend_window_minutes,
         )
         if resend_count < settings.otp_max_resends:
-            await repo.invalidate_user_otps(db=db, user_id=user.id, purpose=OTP_PURPOSE_PASSWORD_RESET)
+            await repo.invalidate_user_otps(db=db, user_id=user.id, purpose=OtpPurpose.PASSWORD_RESET)
             otp = generate_numeric_otp()
             await repo.create_email_otp(
                 db=db,
                 user_id=user.id,
                 otp_hash=hash_otp(otp),
-                purpose=OTP_PURPOSE_PASSWORD_RESET,
+                purpose=OtpPurpose.PASSWORD_RESET,
                 expire_minutes=settings.otp_expire_minutes,
             )
             await send_otp_email(to_email=email, otp=otp, purpose="password reset")
@@ -305,7 +307,7 @@ async def forgot_password(db: AsyncSession, email: str) -> dict:
     return {"success": True, "success_code": ResponseCodes.PASSWORD_RESET_EMAIL_SENT}
 
 
-async def change_password(db: AsyncSession, user_id: str, new_password: str) -> dict:
+async def change_password(db: AsyncSession, user_id: int, new_password: str) -> dict:
     """Update the user's password hash and revoke all active sessions.
 
     Called after password-reset token validation. Revoking all sessions

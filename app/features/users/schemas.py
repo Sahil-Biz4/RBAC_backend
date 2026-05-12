@@ -32,7 +32,3 @@ class UserUpdateIn(BaseModel):
     name: str | None = Field(default=None, min_length=2, max_length=100)
 
 
-class UsersListOut(BaseModel):
-    success: bool
-    users: list[UserOut]
-    total: int

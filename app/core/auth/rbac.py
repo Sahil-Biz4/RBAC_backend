@@ -1,10 +1,15 @@
-"""RBAC dependency factories — reusable role and permission enforcement for any route."""
+"""RBAC dependency factories — reusable role and permission enforcement for any route.
+
+Permissions are checked via exact string match only (e.g. "roles:read").
+Higher-privilege actions do NOT automatically grant lower ones — each
+permission must be explicitly assigned to a role.
+"""
 
 from collections.abc import Callable
 
 from fastapi import Depends, HTTPException, Request, status
 
-from app.utils.constants import ResponseMessages
+from app.utils.constants import ErrorCodes, ResponseMessages
 
 
 def _get_token_payload(request: Request) -> dict:
@@ -46,6 +51,7 @@ def require_role(role: str) -> Callable:
                 detail={
                     "success": False,
                     "message": ResponseMessages.ROLE_DENIED.format(role=role),
+                    "error_code": ErrorCodes.FORBIDDEN,
                 },
             )
 
@@ -70,7 +76,11 @@ def require_any_role(roles: list[str]) -> Callable:
         if not any(r in user_roles for r in roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"success": False, "message": ResponseMessages.FORBIDDEN},
+                detail={
+                    "success": False,
+                    "message": ResponseMessages.FORBIDDEN,
+                    "error_code": ErrorCodes.FORBIDDEN,
+                },
             )
 
     return _dependency
@@ -97,6 +107,7 @@ def require_permission(permission: str) -> Callable:
                 detail={
                     "success": False,
                     "message": ResponseMessages.PERMISSION_DENIED.format(permission=permission),
+                    "error_code": ErrorCodes.FORBIDDEN,
                 },
             )
 
@@ -118,7 +129,11 @@ def require_any_permission(permissions: list[str]) -> Callable:
         if not any(p in user_permissions for p in permissions):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"success": False, "message": ResponseMessages.FORBIDDEN},
+                detail={
+                    "success": False,
+                    "message": ResponseMessages.FORBIDDEN,
+                    "error_code": ErrorCodes.FORBIDDEN,
+                },
             )
 
     return _dependency
@@ -143,6 +158,7 @@ def require_all_permissions(permissions: list[str]) -> Callable:
                 detail={
                     "success": False,
                     "message": ResponseMessages.PERMISSION_DENIED.format(permission=", ".join(missing)),
+                    "error_code": ErrorCodes.FORBIDDEN,
                 },
             )
 

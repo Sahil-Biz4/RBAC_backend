@@ -23,28 +23,31 @@ class RoleNames:
 class Permissions:
     # Users
     USERS_READ = "users:read"
-    USERS_WRITE = "users:write"
+    USERS_CREATE = "users:create"
+    USERS_UPDATE = "users:update"
     USERS_DELETE = "users:delete"
 
     # Roles
     ROLES_READ = "roles:read"
-    ROLES_WRITE = "roles:write"
+    ROLES_CREATE = "roles:create"
+    ROLES_UPDATE = "roles:update"
     ROLES_DELETE = "roles:delete"
 
     # Permissions
     PERMISSIONS_READ = "permissions:read"
-    PERMISSIONS_WRITE = "permissions:write"
+    PERMISSIONS_CREATE = "permissions:create"
+    PERMISSIONS_UPDATE = "permissions:update"
     PERMISSIONS_DELETE = "permissions:delete"
 
     # Profile
     PROFILE_READ = "profile:read"
-    PROFILE_WRITE = "profile:write"
+    PROFILE_UPDATE = "profile:update"
 
     ALL = [
-        USERS_READ, USERS_WRITE, USERS_DELETE,
-        ROLES_READ, ROLES_WRITE, ROLES_DELETE,
-        PERMISSIONS_READ, PERMISSIONS_WRITE, PERMISSIONS_DELETE,
-        PROFILE_READ, PROFILE_WRITE,
+        USERS_READ, USERS_CREATE, USERS_UPDATE, USERS_DELETE,
+        ROLES_READ, ROLES_CREATE, ROLES_UPDATE, ROLES_DELETE,
+        PERMISSIONS_READ, PERMISSIONS_CREATE, PERMISSIONS_UPDATE, PERMISSIONS_DELETE,
+        PROFILE_READ, PROFILE_UPDATE,
     ]
 
 
@@ -52,18 +55,18 @@ class Permissions:
 DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
     RoleNames.SUPER_ADMIN: Permissions.ALL,
     RoleNames.ADMIN: [
-        Permissions.USERS_READ, Permissions.USERS_WRITE, Permissions.USERS_DELETE,
+        Permissions.USERS_READ, Permissions.USERS_CREATE, Permissions.USERS_UPDATE, Permissions.USERS_DELETE,
         Permissions.ROLES_READ,
         Permissions.PERMISSIONS_READ,
-        Permissions.PROFILE_READ, Permissions.PROFILE_WRITE,
+        Permissions.PROFILE_READ, Permissions.PROFILE_UPDATE,
     ],
     RoleNames.MANAGER: [
         Permissions.USERS_READ,
         Permissions.ROLES_READ,
-        Permissions.PROFILE_READ, Permissions.PROFILE_WRITE,
+        Permissions.PROFILE_READ, Permissions.PROFILE_UPDATE,
     ],
     RoleNames.USER: [
-        Permissions.PROFILE_READ, Permissions.PROFILE_WRITE,
+        Permissions.PROFILE_READ, Permissions.PROFILE_UPDATE,
     ],
 }
 
@@ -162,6 +165,16 @@ class ResponseMessages:
     ROLE_NOT_ASSIGNED = "This role is not assigned to the user."
     PERMISSION_NOT_ASSIGNED = "This permission is not assigned to the role."
     CANNOT_DELETE_DEFAULT_ROLE = "Default system roles cannot be deleted."
+
+    # Admin — role operations
+    ROLE_DELETED = "Role deleted successfully."
+    ROLE_ASSIGNED_TO_USER = "Role assigned to user successfully."
+    ROLE_REVOKED_FROM_USER = "Role revoked from user successfully."
+
+    # Admin — permission operations
+    PERMISSION_DELETED = "Permission deleted successfully."
+    PERMISSION_ASSIGNED_TO_ROLE = "Permission assigned to role successfully."
+    PERMISSION_REVOKED_FROM_ROLE = "Permission revoked from role successfully."
 
     # Access control
     ADMIN_ONLY = "Admin access required."

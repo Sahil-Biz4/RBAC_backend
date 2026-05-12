@@ -24,7 +24,7 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
 
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
-    """Fetch a user by UUID primary key, eagerly loading their roles."""
+    """Fetch a user by integer primary key, eagerly loading their roles."""
     result = await db.execute(
         select(User)
         .where(User.id == user_id)
@@ -33,16 +33,23 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     return result.scalars().first()
 
 
-async def create_user(db: AsyncSession, name: str, email: str, password_hash: str) -> User:
+async def create_user(
+    db: AsyncSession, name: str, email: str, password_hash: str, commit: bool = True
+) -> User:
     """Insert a new user record and return it."""
     user = User(name=name, email=email, password_hash=password_hash)
     db.add(user)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(user)
     return user
 
 
-async def assign_role_to_user(db: AsyncSession, user_id: int, role_name: str) -> None:
+async def assign_role_to_user(
+    db: AsyncSession, user_id: int, role_name: str, commit: bool = True
+) -> None:
     """Assign a named role to a user. No-ops if already assigned."""
     role_result = await db.execute(select(Role).where(Role.name == role_name))
     role = role_result.scalars().first()
@@ -56,7 +63,8 @@ async def assign_role_to_user(db: AsyncSession, user_id: int, role_name: str) ->
         return
 
     db.add(UserRole(user_id=user_id, role_id=role.id))
-    await db.commit()
+    if commit:
+        await db.commit()
 
 
 async def get_user_roles_and_permissions(db: AsyncSession, user_id: int) -> tuple[list[str], list[str]]:
@@ -88,12 +96,16 @@ async def create_email_otp(
     otp_hash: str,
     purpose: str,
     expire_minutes: int,
+    commit: bool = True,
 ) -> EmailOtp:
     """Insert a new OTP record and return it."""
     expires_at = datetime.now(UTC) + timedelta(minutes=expire_minutes)
     otp = EmailOtp(user_id=user_id, otp_hash=otp_hash, purpose=purpose, expires_at=expires_at)
     db.add(otp)
-    await db.commit()
+    if commit:
+        await db.commit()
+    else:
+        await db.flush()
     await db.refresh(otp)
     return otp
 
@@ -183,12 +195,13 @@ async def create_refresh_token_record(
 
 
 async def get_refresh_token_by_jti(db: AsyncSession, jti: str) -> RefreshToken | None:
-    """Fetch a non-revoked refresh token record by JTI."""
+    """Fetch a non-revoked, non-expired refresh token record by JTI."""
     result = await db.execute(
         select(RefreshToken).where(
             and_(
                 RefreshToken.jti == jti,
                 RefreshToken.is_revoked == False,  # noqa: E712
+                RefreshToken.expires_at > datetime.now(UTC),
             )
         )
     )

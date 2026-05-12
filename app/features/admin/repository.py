@@ -79,14 +79,6 @@ async def create_permission(
     return permission
 
 
-async def update_permission(db: AsyncSession, permission: Permission, description: str | None) -> Permission:
-    if description is not None:
-        permission.description = description
-    await db.commit()
-    await db.refresh(permission)
-    return permission
-
-
 async def delete_permission(db: AsyncSession, permission: Permission) -> None:
     await db.delete(permission)
     await db.commit()

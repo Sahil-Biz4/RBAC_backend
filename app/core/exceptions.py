@@ -42,13 +42,10 @@ class AppError(Exception):
         self.message = message
 
     def as_http_exception(self) -> HTTPException:
-        """Convert this domain exception into a FastAPI HTTPException.
-        
-        Returns only error_code — frontend uses it for i18n translations.
-        """
+        """Convert this domain exception into a FastAPI HTTPException."""
         return HTTPException(
             status_code=self.status_code,
-            detail={"success": False, "error_code": self.code},
+            detail={"success": False, "error_code": self.code, "message": self.message},
         )
 
 
@@ -88,6 +85,12 @@ class ConflictError(AppError):
     """Resource already exists or violates a uniqueness constraint."""
 
     status_code = status.HTTP_409_CONFLICT
+
+
+class BadRequestError(AppError):
+    """Invalid request that violates a domain constraint (e.g. modifying a protected resource)."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
 
 
 # ── Input / Validation ───────────────────────────────────────────────────────

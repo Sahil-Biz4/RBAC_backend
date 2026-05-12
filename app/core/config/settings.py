@@ -80,11 +80,6 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = Field(default="", alias="SENDGRID_API_KEY")
     sendgrid_from_email: str = Field(default="", alias="SENDGRID_FROM_EMAIL")
 
-    # ── Redis / Rate Limiting ─────────────────────────────────────────────────
-    redis_url: str = Field(default="", alias="REDIS_URL")
-    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
-    rate_limit_storage_uri: str = Field(default="", alias="RATE_LIMIT_STORAGE_URI")
-
     # ── Database Connection Pool ──────────────────────────────────────────────
     db_pool_size: int = Field(default=20, alias="DB_POOL_SIZE")
     db_max_overflow: int = Field(default=10, alias="DB_MAX_OVERFLOW")
@@ -106,6 +101,13 @@ class Settings(BaseSettings):
     def _jwt_secret_must_not_be_empty(cls, v: str) -> str:
         if not v:
             raise ValueError("JWT_SECRET_KEY must be set and non-empty.")
+        return v
+
+    @field_validator("admin_secret_key")
+    @classmethod
+    def _admin_secret_must_not_be_empty(cls, v: str) -> str:
+        if not v:
+            raise ValueError("ADMIN_SECRET_KEY must be set and non-empty.")
         return v
 
     @computed_field  # type: ignore[misc]

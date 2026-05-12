@@ -69,16 +69,8 @@ class AuditEvent(str, Enum):
     USER_DELETED = "USER_DELETED"
 
 
-# ── CORS ───────────────────────────────────────────────────────────────────
+# ── CORS ───────────────
 CORS_WILDCARD = "*"
-CORS_ALLOWED_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-CORS_ALLOWED_HEADERS = ["Content-Type", "Authorization"]
-
-# ── Rate Limiting ──────────────────────────────────────────────────────────
-class RateLimits:
-    DEFAULT_GLOBAL = "200/minute"
-    AUTH_STRICT = "10/minute"
-    OTP_RESEND = "5/minute"
 
 
 # ── API Tags ───────────────────────────────────────────────────────────────
@@ -125,7 +117,6 @@ class HealthCheckStatus:
 # ── Error Messages ─────────────────────────────────────────────────────────
 class ErrorMessages:
     INTERNAL_SERVER_ERROR = "An unexpected error occurred. Please try again later."
-    RATE_LIMIT_EXCEEDED = "Too many requests. Please slow down and try again later."
     UNAUTHORIZED = "Authentication required."
     FORBIDDEN = "You do not have permission to perform this action."
     NOT_FOUND = "The requested resource was not found."
