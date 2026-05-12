@@ -8,7 +8,6 @@ from sqlalchemy.orm import selectinload
 
 from app.models.associations import RolePermission, UserRole
 from app.models.email_otp import EmailOtp
-from app.models.refresh_token import RefreshToken
 from app.models.role import Role
 from app.models.user import User
 
@@ -175,58 +174,6 @@ async def count_recent_resends(db: AsyncSession, user_id: int, purpose: str, win
         )
     )
     return result.scalar_one()
-
-
-# ── Refresh Token ─────────────────────────────────────────────────────────
-
-async def create_refresh_token_record(
-    db: AsyncSession,
-    user_id: int,
-    jti: str,
-    expire_minutes: int,
-) -> RefreshToken:
-    """Persist a new refresh token JTI and return the record."""
-    expires_at = datetime.now(UTC) + timedelta(minutes=expire_minutes)
-    token = RefreshToken(user_id=user_id, jti=jti, expires_at=expires_at)
-    db.add(token)
-    await db.commit()
-    await db.refresh(token)
-    return token
-
-
-async def get_refresh_token_by_jti(db: AsyncSession, jti: str) -> RefreshToken | None:
-    """Fetch a non-revoked, non-expired refresh token record by JTI."""
-    result = await db.execute(
-        select(RefreshToken).where(
-            and_(
-                RefreshToken.jti == jti,
-                RefreshToken.is_revoked == False,  # noqa: E712
-                RefreshToken.expires_at > datetime.now(UTC),
-            )
-        )
-    )
-    return result.scalars().first()
-
-
-async def revoke_refresh_token(db: AsyncSession, token: RefreshToken) -> None:
-    """Mark a single refresh token as revoked."""
-    token.is_revoked = True
-    await db.commit()
-
-
-async def revoke_all_user_tokens(db: AsyncSession, user_id: int) -> None:
-    """Revoke every active refresh token for a user (bulk UPDATE)."""
-    await db.execute(
-        update(RefreshToken)
-        .where(
-            and_(
-                RefreshToken.user_id == user_id,
-                RefreshToken.is_revoked == False,  # noqa: E712
-            )
-        )
-        .values(is_revoked=True)
-    )
-    await db.commit()
 
 
 async def update_user_password(db: AsyncSession, user: User, new_hash: str) -> None:

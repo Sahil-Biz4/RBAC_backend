@@ -5,7 +5,7 @@ from enum import Enum
 
 # ── JWT ────────────────────────────────────────────────────────────────────
 JWT_ALGORITHM = "HS256"
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 15
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 2
 JWT_REFRESH_TOKEN_EXPIRE_MINUTES = 10080  # 7 days
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 15
 

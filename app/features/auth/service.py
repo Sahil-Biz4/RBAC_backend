@@ -20,6 +20,7 @@ from app.core.config.settings import settings
 from app.core.constants import OtpPurpose
 from app.core.exceptions import AuthError, ConflictError, ForbiddenError, NotFoundError, RateLimitError
 from app.core.services.email_service import send_otp_email
+from app.core.services.redis_service import redis_service
 from app.features.auth import repository as repo
 from app.utils.constants import ErrorCodes, ResponseCodes, ResponseMessages, RoleNames
 from app.utils.helpers import generate_numeric_otp, hash_otp, verify_otp_hash
@@ -80,7 +81,7 @@ async def register_admin(db: AsyncSession, name: str, email: str, password: str,
 
 
 async def login_user(db: AsyncSession, email: str, password: str) -> dict:
-    """Authenticate credentials and return a JWT token pair.
+    """Authenticate credentials and return JWT access + refresh tokens.
 
     Raises:
         AuthError:      Invalid credentials.
@@ -105,14 +106,10 @@ async def login_user(db: AsyncSession, email: str, password: str) -> dict:
         subject=user.id, email=user.email, roles=roles, permissions=permissions,
         perms_version=user.perms_version,
     )
-    refresh_token, refresh_jti = create_refresh_token(subject=user.id, email=user.email)
+    refresh_token, _ = create_refresh_token(subject=user.id, email=user.email)
 
-    await repo.create_refresh_token_record(
-        db=db,
-        user_id=user.id,
-        jti=refresh_jti,
-        expire_minutes=settings.jwt_refresh_token_expire_minutes,
-    )
+    ttl = settings.jwt_refresh_token_expire_minutes * 60
+    await redis_service.store_refresh_token(user.id, refresh_token, ttl)
 
     return {
         "success": True,
@@ -123,28 +120,22 @@ async def login_user(db: AsyncSession, email: str, password: str) -> dict:
     }
 
 
-async def refresh_tokens(db: AsyncSession, refresh_token: str) -> dict:
-    """Exchange a valid refresh token for a new access + refresh token pair.
+async def refresh_tokens(db: AsyncSession, user_id: int, refresh_token: str) -> dict:
+    """Issue new access + refresh tokens by verifying the stored Redis token (rotation).
 
     Raises:
-        AuthError: Token invalid, expired, revoked, or user not found.
+        AuthError: Token missing in Redis, invalid JWT, or user not found/inactive.
     """
+    is_valid = await redis_service.verify_refresh_token(user_id, refresh_token)
+    if not is_valid:
+        raise AuthError(ErrorCodes.INVALID_TOKEN, ResponseMessages.REFRESH_TOKEN_INVALID)
+
     try:
-        payload = decode_refresh_token(refresh_token)
+        decode_refresh_token(refresh_token)
     except Exception as exc:
         raise AuthError(ErrorCodes.INVALID_TOKEN, ResponseMessages.REFRESH_TOKEN_INVALID) from exc
 
-    jti: str | None = payload.get("jti")
-    user_id_str: str | None = payload.get("sub")
-
-    if not jti or not user_id_str:
-        raise AuthError(ErrorCodes.INVALID_TOKEN, ResponseMessages.REFRESH_TOKEN_INVALID)
-
-    token_record = await repo.get_refresh_token_by_jti(db=db, jti=jti)
-    if not token_record:
-        raise AuthError(ErrorCodes.TOKEN_NOT_FOUND, ResponseMessages.TOKEN_BLACKLISTED)
-
-    user = await repo.get_user_by_id(db=db, user_id=int(user_id_str))
+    user = await repo.get_user_by_id(db=db, user_id=user_id)
     if not user or not user.is_active:
         raise AuthError(ErrorCodes.INVALID_TOKEN, ResponseMessages.INVALID_TOKEN)
 
@@ -154,15 +145,10 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> dict:
         subject=user.id, email=user.email, roles=roles, permissions=permissions,
         perms_version=user.perms_version,
     )
-    new_refresh, new_jti = create_refresh_token(subject=user.id, email=user.email)
+    new_refresh, _ = create_refresh_token(subject=user.id, email=user.email)
 
-    await repo.revoke_refresh_token(db=db, token=token_record)
-    await repo.create_refresh_token_record(
-        db=db,
-        user_id=user.id,
-        jti=new_jti,
-        expire_minutes=settings.jwt_refresh_token_expire_minutes,
-    )
+    ttl = settings.jwt_refresh_token_expire_minutes * 60
+    await redis_service.store_refresh_token(user.id, new_refresh, ttl)
 
     return {
         "success": True,
@@ -173,17 +159,12 @@ async def refresh_tokens(db: AsyncSession, refresh_token: str) -> dict:
     }
 
 
-async def logout_user(db: AsyncSession, refresh_token: str) -> dict:
-    """Revoke the refresh token. Intentionally lenient — always returns success."""
+async def logout_user(user_id: int) -> dict:
+    """Delete the Redis refresh token. Intentionally lenient — always returns success."""
     try:
-        payload = decode_refresh_token(refresh_token)
-        jti = payload.get("jti")
-        if jti:
-            token_record = await repo.get_refresh_token_by_jti(db=db, jti=jti)
-            if token_record:
-                await repo.revoke_refresh_token(db=db, token=token_record)
+        await redis_service.delete_refresh_token(user_id)
     except Exception as exc:
-        logger.warning("logout_user: token revocation failed — %s", exc)
+        logger.warning("logout_user: token deletion failed — %s", exc)
 
     return {"success": True, "success_code": ResponseCodes.LOGOUT_SUCCESS}
 
@@ -222,13 +203,11 @@ async def verify_otp(db: AsyncSession, email: str, otp: str, purpose: str) -> di
             subject=user.id, email=user.email, roles=roles, permissions=permissions,
             perms_version=user.perms_version,
         )
-        refresh_token, refresh_jti = create_refresh_token(subject=user.id, email=user.email)
-        await repo.create_refresh_token_record(
-            db=db,
-            user_id=user.id,
-            jti=refresh_jti,
-            expire_minutes=settings.jwt_refresh_token_expire_minutes,
-        )
+        refresh_token, _ = create_refresh_token(subject=user.id, email=user.email)
+
+        ttl = settings.jwt_refresh_token_expire_minutes * 60
+        await redis_service.store_refresh_token(user.id, refresh_token, ttl)
+
         return {
             "success": True,
             "success_code": ResponseCodes.OTP_VERIFIED,
@@ -321,6 +300,6 @@ async def change_password(db: AsyncSession, user_id: int, new_password: str) -> 
         raise NotFoundError(ErrorCodes.USER_NOT_FOUND, ResponseMessages.USER_NOT_FOUND)
 
     await repo.update_user_password(db=db, user=user, new_hash=hash_password(new_password))
-    await repo.revoke_all_user_tokens(db=db, user_id=user_id)
+    await redis_service.delete_all_user_sessions(user_id=user_id)
 
     return {"success": True, "success_code": ResponseCodes.PASSWORD_CHANGED}

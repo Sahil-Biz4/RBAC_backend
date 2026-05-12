@@ -52,16 +52,6 @@ class LoginIn(BaseModel):
     password: str = Field(..., min_length=1)
 
 
-class TokenOut(BaseModel):
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-
-
-class RefreshIn(BaseModel):
-    refresh_token: str
-
-
 class VerifyOtpIn(BaseModel):
     email: EmailStr
     otp: str = Field(..., min_length=6, max_length=6, pattern=r"^\d{6}$")
@@ -75,6 +65,10 @@ class ResendOtpIn(BaseModel):
 
 class ForgotPasswordIn(BaseModel):
     email: EmailStr
+
+
+class RefreshIn(BaseModel):
+    refresh_token: str
 
 
 class ChangePasswordIn(BaseModel):

@@ -138,6 +138,7 @@ class ResponseMessages:
     # Errors — Auth
     INVALID_CREDENTIALS = "Invalid email or password."
     INVALID_TOKEN = "Invalid or expired token."
+    INVALID_RESET_TOKEN = "Your password reset link has expired. Please request a new OTP."
     INVALID_TOKEN_SCOPE = "Token scope is invalid for this operation."
     TOKEN_BLACKLISTED = "Token has been revoked. Please log in again."
     EMAIL_ALREADY_EXISTS = "An account with this email already exists."

@@ -113,14 +113,14 @@ async def get_password_reset_user(
     except (PyJWTError, jwt.InvalidTokenError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
+            detail={"success": False, "message": ResponseMessages.INVALID_RESET_TOKEN},
         ) from exc
 
     user_id_str = payload.get("sub")
     if not user_id_str:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
+            detail={"success": False, "message": ResponseMessages.INVALID_RESET_TOKEN},
         )
 
     user = await get_user_by_id(db=db, user_id=int(user_id_str))

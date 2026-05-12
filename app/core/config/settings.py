@@ -80,11 +80,8 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = Field(default="", alias="SENDGRID_API_KEY")
     sendgrid_from_email: str = Field(default="", alias="SENDGRID_FROM_EMAIL")
 
-    # ── Database Connection Pool ──────────────────────────────────────────────
-    db_pool_size: int = Field(default=20, alias="DB_POOL_SIZE")
-    db_max_overflow: int = Field(default=10, alias="DB_MAX_OVERFLOW")
-    db_pool_timeout: int = Field(default=30, alias="DB_POOL_TIMEOUT")
-    db_pool_recycle: int = Field(default=3600, alias="DB_POOL_RECYCLE")
+    # ── Redis ─────────────────────────────────────────────────────────────────
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     cors_origins_raw: str = Field(default="", alias="CORS_ORIGINS")

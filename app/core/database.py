@@ -51,19 +51,7 @@ if not _db_url:
         "Set DATABASE_URL in your .env file or environment variables."
     )
 
-_is_sqlite = _db_url.startswith("sqlite")
-_engine_kwargs: dict = {"pool_pre_ping": True}
-if not _is_sqlite:
-    _engine_kwargs.update(
-        {
-            "pool_size": settings.db_pool_size,
-            "max_overflow": settings.db_max_overflow,
-            "pool_timeout": settings.db_pool_timeout,
-            "pool_recycle": settings.db_pool_recycle,
-        }
-    )
-
-engine = create_async_engine(_db_url, **_engine_kwargs)
+engine = create_async_engine(_db_url, pool_pre_ping=True)
 
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 

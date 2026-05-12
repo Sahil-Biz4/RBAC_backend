@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config.settings import settings
 from app.core.logging_config import configure_logging
+from app.core.services.redis_service import redis_service
 
 configure_logging(environment=settings.environment)
 
@@ -43,6 +45,13 @@ logger = logging.getLogger(__name__)
 import app.models  # noqa: E402, F401 — ensure all ORM models are registered in metadata
 
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await redis_service.connect()
+    yield
+    await redis_service.disconnect()
+
+
 def create_app() -> FastAPI:
     """Build and return the FastAPI application with all middleware and routers.
 
@@ -64,6 +73,7 @@ def create_app() -> FastAPI:
         docs_url=docs_url,
         redoc_url=redoc_url,
         openapi_url=openapi_url,
+        lifespan=lifespan,
     )
 
     @app.exception_handler(Exception)
