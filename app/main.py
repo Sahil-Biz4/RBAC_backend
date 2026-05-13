@@ -34,7 +34,7 @@ from app.features.admin.routes import router as admin_router
 from app.features.auth.routes import router as auth_router
 from app.features.auth.routes_definition import routes as auth_routes
 from app.features.users.routes import router as users_router
-from app.utils.constants import PROJECT_NAME, VERSION
+from app.utils.constants import VERSION
 
 
 configure_logging(environment=settings.environment)
@@ -68,7 +68,7 @@ def create_app() -> FastAPI:
     openapi_url = None if settings.environment == "production" else "/openapi.json"
 
     app = FastAPI(
-        title=PROJECT_NAME,
+        title=settings.project_name,
         version=VERSION,
         docs_url=docs_url,
         redoc_url=redoc_url,

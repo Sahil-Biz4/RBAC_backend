@@ -4,11 +4,7 @@ For system-level infrastructure constants (JWT, OTP timing, HTTP helpers) see ap
 """
 
 # ── Project metadata ───────────────────────────────────────────────────────
-PROJECT_NAME = "Auth Module"
 VERSION = "1.0.0"
-APP_NAME = "AuthModule"
-SUPPORT_EMAIL = "support@yourdomain.com"
-BRAND_COLOR = "#1a1a2e"
 
 
 # ── Default Roles ──────────────────────────────────────────────────────────
@@ -137,6 +133,7 @@ class ErrorCodes:
 
     # Admin
     INVALID_ADMIN_SECRET = "invalid_admin_secret"
+    ADMIN_IP_LOCKED = "admin_ip_locked"
 
     # Profile
     INCORRECT_CURRENT_PASSWORD = "incorrect_current_password"
@@ -173,6 +170,7 @@ class ResponseMessages:
     OTP_RESEND_LIMIT = "Maximum OTP resend limit reached. Please try again later."
     OTP_ALREADY_USED = "This OTP has already been used."
     INVALID_ADMIN_SECRET = "Invalid admin secret key."
+    ADMIN_IP_LOCKED = "Too many failed attempts. Admin registration from this IP is temporarily locked."
     REFRESH_TOKEN_INVALID = "Invalid or expired refresh token."
 
     # Errors — Users
@@ -192,6 +190,7 @@ class ResponseMessages:
     ROLE_NOT_ASSIGNED = "This role is not assigned to the user."
     PERMISSION_NOT_ASSIGNED = "This permission is not assigned to the role."
     CANNOT_DELETE_DEFAULT_ROLE = "Default system roles cannot be deleted."
+    CANNOT_MODIFY_DEFAULT_ROLE = "Default system roles cannot be modified."
 
     # Admin — role operations
     ROLE_DELETED = "Role deleted successfully."

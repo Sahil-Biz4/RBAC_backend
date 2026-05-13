@@ -79,11 +79,23 @@ class HealthCheckStatus:
     UNREACHABLE = "unreachable"
 
 
+# ── Admin Registration Guard ─────────────────────────────────────────────────
+ADMIN_REGISTER_RATE_LIMIT = "3/hour"
+ADMIN_REGISTER_MAX_FAILURES = 5
+ADMIN_REGISTER_LOCKOUT_MINUTES = 60
+ADMIN_REGISTER_FAILURE_KEY_PREFIX = "admin_reg_fail"
+
+
 # ── Error Messages ─────────────────────────────────────────────────────────
 # HTTP-layer fallback strings used by the global exception handler.
 # Domain-level user-facing messages live in app/utils/constants.py (ResponseMessages).
+class TokenTypes:
+    BEARER = "bearer"
+
+
 class ErrorMessages:
     INTERNAL_SERVER_ERROR = "An unexpected error occurred. Please try again later."
     UNAUTHORIZED = "Authentication required."
     FORBIDDEN = "You do not have permission to perform this action."
     NOT_FOUND = "The requested resource was not found."
+    SERVICE_UNAVAILABLE = "Service temporarily unavailable. Please try again later."

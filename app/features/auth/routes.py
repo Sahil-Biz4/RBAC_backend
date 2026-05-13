@@ -2,11 +2,12 @@
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import JSONResponse
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import get_current_user, get_password_reset_user
 from app.core.auth.jwt_handler import decode_refresh_token
-from app.core.constants import APITags
+from app.core.constants import ADMIN_REGISTER_RATE_LIMIT, APITags
 from app.core.database import get_db
 from app.core.exceptions import AppError, AuthError
 from app.core.limiter import limiter
@@ -66,7 +67,7 @@ async def register(request: Request, body: RegisterIn, db: AsyncSession = Depend
 
 
 @router.post(r.REGISTER_ADMIN, status_code=status.HTTP_201_CREATED, summary="Register an admin user")
-@limiter.limit("5/minute")
+@limiter.limit(ADMIN_REGISTER_RATE_LIMIT)
 async def register_admin(request: Request, body: RegisterAdminIn, db: AsyncSession = Depends(get_db)) -> JSONResponse:
     """Create an admin account — requires the ADMIN_SECRET_KEY."""
     try:
@@ -76,6 +77,7 @@ async def register_admin(request: Request, body: RegisterAdminIn, db: AsyncSessi
             email=body.email,
             password=body.password,
             secret_key=body.admin_secret_key,
+            ip_address=get_remote_address(request),
         )
     except AppError as exc:
         raise exc.as_http_exception() from exc
@@ -124,7 +126,9 @@ async def refresh(request: Request, db: AsyncSession = Depends(get_db)) -> JSONR
 
 
 @router.post(r.LOGOUT, summary="Logout — revoke refresh token")
+@limiter.limit("20/minute")
 async def logout(
+    request: Request,
     current_user: User = Depends(get_current_user),
 ) -> JSONResponse:
     """Delete the Redis refresh token and clear the httpOnly cookie."""
@@ -169,7 +173,9 @@ async def forgot_password(request: Request, body: ForgotPasswordIn, db: AsyncSes
 
 
 @router.post(r.CHANGE_PASSWORD, summary="Change password using reset token")
+@limiter.limit("5/minute")
 async def change_password(
+    request: Request,
     body: ChangePasswordIn,
     current_user: User = Depends(get_password_reset_user),
     db: AsyncSession = Depends(get_db),

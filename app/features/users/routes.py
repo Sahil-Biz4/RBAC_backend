@@ -9,6 +9,7 @@ from app.core.auth.rbac import require_permission
 from app.core.constants import APITags, ResponseFields
 from app.core.database import get_db
 from app.core.exceptions import AppError
+from app.core.response import paginated_json
 from app.features.users import service
 from app.features.users.routes_definition import routes as r
 from app.features.users.schemas import AdminUserUpdateIn, ChangeMyPasswordIn, CreateUserIn, UserOut, UserUpdateIn
@@ -98,11 +99,11 @@ async def create_user(
 @router.get(
     "",
     summary="List all users (admin)",
-    dependencies=[Depends(require_permission(Permissions.USERS_READ))],
+    dependencies=[Depends(require_permission(Permissions.USERS_READ)), Depends(get_current_user)],
 )
 async def list_users(
-    page: int = 1,
-    limit: int = 20,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
     search: str | None = Query(default=None, max_length=100),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
@@ -114,22 +115,22 @@ async def list_users(
         raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={
-            ResponseFields.SUCCESS: True,
-            "users": [UserOut.from_user(u) for u in result["users"]],
-            "total": result["total"],
-            "page": page,
-            "limit": limit,
-            "has_next": result["has_next"],
-            ResponseFields.SEARCH: search,
-        },
+        content=paginated_json(
+            "users",
+            [UserOut.from_user(u) for u in result["users"]],
+            result["total"],
+            page,
+            limit,
+            skip,
+            **{ResponseFields.SEARCH: search},
+        ),
     )
 
 
 @router.get(
     r.BY_ID,
     summary="Get user by ID (admin)",
-    dependencies=[Depends(require_permission(Permissions.USERS_READ))],
+    dependencies=[Depends(require_permission(Permissions.USERS_READ)), Depends(get_current_user)],
 )
 async def get_user(
     user_id: int = Path(..., gt=0),

@@ -21,7 +21,7 @@ from app.utils.helpers import hash_otp
 
 class TestRegisterUser:
     async def test_register_new_user_success(self, db: AsyncSession, sample_user_role: Role):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock):
+        with patch("app.features.auth.account_service.send_otp_email", new_callable=AsyncMock):
             result = await service.register_user(
                 db=db, name="Fresh User", email="fresh@example.com", password="Password1!"
             )
@@ -29,7 +29,7 @@ class TestRegisterUser:
         assert result["success_code"] == "register_success"
 
     async def test_register_stores_user_in_db(self, db: AsyncSession):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock):
+        with patch("app.features.auth.account_service.send_otp_email", new_callable=AsyncMock):
             await service.register_user(db=db, name="DB User", email="dbuser@example.com", password="Password1!")
         user = await repo.get_user_by_email(db=db, email="dbuser@example.com")
         assert user is not None
@@ -37,14 +37,14 @@ class TestRegisterUser:
         assert not user.is_email_verified
 
     async def test_register_sends_otp_email(self, db: AsyncSession):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock) as mock_email:
+        with patch("app.features.auth.account_service.send_otp_email", new_callable=AsyncMock) as mock_email:
             await service.register_user(db=db, name="OTP User", email="otpuser@example.com", password="Password1!")
         mock_email.assert_called_once()
 
     async def test_register_duplicate_email_raises_conflict(self, db: AsyncSession, sample_user: User):
         with (
             pytest.raises(ConflictError) as exc_info,
-            patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock),
+            patch("app.features.auth.account_service.send_otp_email", new_callable=AsyncMock),
         ):
             await service.register_user(db=db, name="Dup", email=sample_user.email, password="Password1!")
         assert "email_exists" in str(exc_info.value.code)
@@ -96,6 +96,97 @@ class TestRegisterAdmin:
                 secret_key=settings.admin_secret_key,
             )
 
+    async def test_ip_lockout_raises_rate_limit(self, db: AsyncSession):
+        """When Redis reports too many failures for an IP, registration is blocked."""
+        with (
+            patch(
+                "app.features.auth.account_service.redis_service.get_ip_failures",
+                new_callable=AsyncMock,
+                return_value=settings.admin_register_max_failures,
+            ),
+            pytest.raises(RateLimitError),
+        ):
+            await service.register_admin(
+                db=db,
+                name="LockedAdmin",
+                email="locked@example.com",
+                password="Password1!",
+                secret_key=settings.admin_secret_key,
+                ip_address="1.2.3.4",
+            )
+
+    async def test_ip_lockout_redis_unavailable_is_fail_open(self, db: AsyncSession):
+        """When Redis is unavailable for IP check, registration proceeds (fail-open)."""
+        with (
+            patch(
+                "app.features.auth.account_service.redis_service.get_ip_failures",
+                side_effect=RuntimeError("Redis down"),
+            ),
+            patch(
+                "app.features.auth.account_service.redis_service.clear_ip_failures",
+                new_callable=AsyncMock,
+            ),
+        ):
+            result = await service.register_admin(
+                db=db,
+                name="FailOpenAdmin",
+                email="failopen@example.com",
+                password="Password1!",
+                secret_key=settings.admin_secret_key,
+                ip_address="1.2.3.4",
+            )
+        assert result["success"] is True
+
+    async def test_wrong_secret_with_ip_increments_failure_counter(self, db: AsyncSession):
+        """A wrong secret when ip_address is given should increment the failure counter."""
+        mock_increment = AsyncMock(return_value=1)
+        with (
+            patch(
+                "app.features.auth.account_service.redis_service.get_ip_failures",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "app.features.auth.account_service.redis_service.increment_ip_failures",
+                new=mock_increment,
+            ),
+            pytest.raises(ForbiddenError),
+        ):
+            await service.register_admin(
+                db=db,
+                name="WrongAdmin",
+                email="wrongip@example.com",
+                password="Password1!",
+                secret_key="wrong-secret",
+                ip_address="9.9.9.9",
+            )
+        mock_increment.assert_called_once()
+
+    async def test_correct_secret_with_ip_clears_failure_counter(self, db: AsyncSession):
+        """Successful registration with ip_address should clear the failure counter."""
+        mock_clear = AsyncMock()
+        with (
+            patch(
+                "app.features.auth.account_service.redis_service.get_ip_failures",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "app.features.auth.account_service.redis_service.clear_ip_failures",
+                new=mock_clear,
+            ),
+        ):
+            result = await service.register_admin(
+                db=db,
+                name="SuccessAdmin",
+                email="successip@example.com",
+                password="Password1!",
+                secret_key=settings.admin_secret_key,
+                ip_address="5.5.5.5",
+            )
+        assert result["success"] is True
+        mock_clear.assert_called_once()
+
 
 # ── login_user ─────────────────────────────────────────────────────────────
 
@@ -119,13 +210,13 @@ class TestLoginUser:
     async def test_unverified_email_returns_verification_required(
         self, db: AsyncSession, unverified_user: User, mock_redis
     ):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock):
+        with patch("app.features.auth.session_service.send_otp_email", new_callable=AsyncMock):
             result = await service.login_user(db=db, email=unverified_user.email, password="Password1!")
         assert result["success"] is False
         assert result["email_verification_required"] is True
 
     async def test_unverified_email_sends_new_otp(self, db: AsyncSession, unverified_user: User, mock_redis):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock) as mock_email:
+        with patch("app.features.auth.session_service.send_otp_email", new_callable=AsyncMock) as mock_email:
             await service.login_user(db=db, email=unverified_user.email, password="Password1!")
         mock_email.assert_called_once()
 
@@ -139,7 +230,7 @@ class TestLoginUser:
 
     async def test_login_with_needs_rehash_updates_password(self, db: AsyncSession, sample_user: User, mock_redis):
         """When the hash needs rehashing, login should update it."""
-        with patch("app.features.auth.service.needs_rehash", return_value=True):
+        with patch("app.features.auth.session_service.needs_rehash", return_value=True):
             result = await service.login_user(db=db, email=sample_user.email, password="Password1!")
         assert result["success"] is True
 
@@ -353,7 +444,7 @@ class TestVerifyOtp:
 
 class TestResendOtp:
     async def test_valid_email_sends_otp_and_returns_success(self, db: AsyncSession, unverified_user: User):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock):
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock):
             result = await service.resend_otp(db=db, email=unverified_user.email, purpose=OtpPurpose.EMAIL_VERIFICATION)
         assert result["success"] is True
 
@@ -385,7 +476,7 @@ class TestResendOtp:
             purpose=OtpPurpose.EMAIL_VERIFICATION,
             expire_minutes=10,
         )
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock):
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock):
             await service.resend_otp(
                 db=db,
                 email=unverified_user.email,
@@ -400,19 +491,19 @@ class TestResendOtp:
 
 class TestForgotPassword:
     async def test_known_active_user_sends_otp(self, db: AsyncSession, sample_user: User):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock) as mock_email:
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock) as mock_email:
             result = await service.forgot_password(db=db, email=sample_user.email)
         assert result["success"] is True
         mock_email.assert_called_once()
 
     async def test_unknown_email_returns_success_anti_enumeration(self, db: AsyncSession):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock) as mock_email:
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock) as mock_email:
             result = await service.forgot_password(db=db, email="ghost@example.com")
         assert result["success"] is True
         mock_email.assert_not_called()
 
     async def test_inactive_user_skips_otp_sending(self, db: AsyncSession, inactive_user: User):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock) as mock_email:
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock) as mock_email:
             result = await service.forgot_password(db=db, email=inactive_user.email)
         assert result["success"] is True
         mock_email.assert_not_called()
@@ -426,7 +517,7 @@ class TestForgotPassword:
                 purpose=OtpPurpose.PASSWORD_RESET,
                 expire_minutes=10,
             )
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock) as mock_email:
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock) as mock_email:
             result = await service.forgot_password(db=db, email=sample_user.email)
         assert result["success"] is True
         mock_email.assert_not_called()

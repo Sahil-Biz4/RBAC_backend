@@ -4,20 +4,25 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from app.models.associations import RolePermission, UserRole
+from app.models.associations import UserRole
 from app.models.email_otp import EmailOtp
+from app.models.loader_strategies import USER_WITH_ROLES_AND_PERMISSIONS as _USER_WITH_ROLES_AND_PERMISSIONS
 from app.models.role import Role
 from app.models.user import User
+
+
+def extract_roles_and_permissions(user: User) -> tuple[list[str], list[str]]:
+    """Extract roles and deduplicated permissions from an already-loaded User object."""
+    roles: list[str] = [ur.role.name for ur in user.user_roles]
+    permissions: set[str] = {rp.permission.name for ur in user.user_roles for rp in ur.role.role_permissions}
+    return roles, list(permissions)
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
     """Fetch an active, non-deleted user by email address, eagerly loading their roles."""
     result = await db.execute(
-        select(User)
-        .where(User.email == email, User.deleted_at.is_(None))
-        .options(selectinload(User.user_roles).selectinload(UserRole.role).selectinload(Role.role_permissions))
+        select(User).where(User.email == email, User.deleted_at.is_(None)).options(_USER_WITH_ROLES_AND_PERMISSIONS)
     )
     return result.scalars().first()
 
@@ -25,9 +30,7 @@ async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     """Fetch an active, non-deleted user by integer primary key, eagerly loading their roles."""
     result = await db.execute(
-        select(User)
-        .where(User.id == user_id, User.deleted_at.is_(None))
-        .options(selectinload(User.user_roles).selectinload(UserRole.role).selectinload(Role.role_permissions))
+        select(User).where(User.id == user_id, User.deleted_at.is_(None)).options(_USER_WITH_ROLES_AND_PERMISSIONS)
     )
     return result.scalars().first()
 
@@ -54,31 +57,6 @@ async def assign_role_to_user(db: AsyncSession, user_id: int, role_name: str) ->
 
     db.add(UserRole(user_id=user_id, role_id=role.id))
     await db.flush()
-
-
-async def get_user_roles_and_permissions(db: AsyncSession, user_id: int) -> tuple[list[str], list[str]]:
-    """Return (roles, permissions) lists for embedding into a JWT.
-
-    Permissions are deduplicated across all assigned roles.
-    """
-    result = await db.execute(
-        select(UserRole)
-        .where(UserRole.user_id == user_id)
-        .options(
-            selectinload(UserRole.role).selectinload(Role.role_permissions).selectinload(RolePermission.permission)
-        )
-    )
-    user_roles = result.scalars().all()
-
-    roles: list[str] = []
-    permissions: set[str] = set()
-
-    for ur in user_roles:
-        roles.append(ur.role.name)
-        for rp in ur.role.role_permissions:
-            permissions.add(rp.permission.name)
-
-    return roles, list(permissions)
 
 
 async def create_email_otp(

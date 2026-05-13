@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.core.config.settings import settings
+
 
 class RoleIn(BaseModel):
     name: str = Field(..., min_length=2, max_length=50)
@@ -17,23 +19,6 @@ class RoleOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# Whitelist of allowed resources (features that are implemented)
-ALLOWED_RESOURCES = {
-    "users",
-    "roles",
-    "permissions",
-    "profile",
-}
-
-# Whitelist of allowed actions (standard CRUD operations)
-ALLOWED_ACTIONS = {
-    "read",
-    "create",
-    "update",
-    "delete",
-}
-
-
 class PermissionIn(BaseModel):
     name: str = Field(..., min_length=3, max_length=100, pattern=r"^[a-z_]+:[a-z_]+$")
     resource: str = Field(..., min_length=2, max_length=50, pattern=r"^[a-z][a-z0-9_]*$")
@@ -44,10 +29,11 @@ class PermissionIn(BaseModel):
     @classmethod
     def validate_resource_implemented(cls, v: str) -> str:
         """Only allow creating permissions for implemented features."""
-        if v not in ALLOWED_RESOURCES:
+        allowed = settings.allowed_resources
+        if v not in allowed:
             raise ValueError(
                 f"Resource '{v}' is not implemented. "
-                f"Allowed resources: {', '.join(sorted(ALLOWED_RESOURCES))}. "
+                f"Allowed resources: {', '.join(sorted(allowed))}. "
                 f"Please implement the feature first or contact the development team."
             )
         return v
@@ -56,8 +42,9 @@ class PermissionIn(BaseModel):
     @classmethod
     def validate_action_allowed(cls, v: str) -> str:
         """Only allow standard CRUD actions."""
-        if v not in ALLOWED_ACTIONS:
-            raise ValueError(f"Action '{v}' is not allowed. " f"Allowed actions: {', '.join(sorted(ALLOWED_ACTIONS))}.")
+        allowed = settings.allowed_actions
+        if v not in allowed:
+            raise ValueError(f"Action '{v}' is not allowed. Allowed actions: {', '.join(sorted(allowed))}.")
         return v
 
     @model_validator(mode="after")

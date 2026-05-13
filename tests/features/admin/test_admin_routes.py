@@ -108,6 +108,29 @@ class TestListRoles:
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
+    async def test_role_with_permissions_included_in_response(
+        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
+    ):
+        """Roles with assigned permissions must include full permission data in list response."""
+        from tests.conftest import _assign_permission
+
+        role = await _make_role(db, "permissionedrole")
+        perm = await _make_permission(db, "profile:read", "profile", "read")
+        await _assign_permission(db, role.id, perm.id)
+        await db.commit()  # commit the RolePermission so selectinload can find it
+        resp = await client.get(
+            "/api/v1/admin/roles",
+            headers=_auth(admin_full_token),
+            params={"search": "permissionedrole"},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["total"] >= 1
+        matched = [r for r in data["roles"] if r["name"] == "permissionedrole"]
+        assert len(matched) == 1
+        assert len(matched[0]["permissions"]) == 1
+        assert matched[0]["permissions"][0]["name"] == "profile:read"
+
 
 # ── Create Role ────────────────────────────────────────────────────────────
 
@@ -245,6 +268,20 @@ class TestListPermissions:
         resp = await client.get("/api/v1/admin/permissions")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
+    async def test_permissions_data_included_in_response(
+        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
+    ):
+        """Created permissions must appear in the list response with all fields."""
+        await _make_permission(db, "roles:read", "roles", "read")
+        resp = await client.get("/api/v1/admin/permissions", headers=_auth(admin_full_token))
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["total"] >= 1
+        matched = [p for p in data["permissions"] if p["name"] == "roles:read"]
+        assert len(matched) == 1
+        assert matched[0]["resource"] == "roles"
+        assert matched[0]["action"] == "read"
+
 
 # ── Create Permission ──────────────────────────────────────────────────────
 
@@ -281,7 +318,7 @@ class TestCreatePermission:
         resp = await client.post(
             "/api/v1/admin/permissions",
             headers=_auth(admin_full_token),
-            json={"name": "users:export", "resource": "users", "action": "export"},
+            json={"name": "users:purge", "resource": "users", "action": "purge"},
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
@@ -291,6 +328,15 @@ class TestCreatePermission:
             "/api/v1/admin/permissions",
             headers=_auth(admin_full_token),
             json={"name": "roles:read", "resource": "users", "action": "read"},
+        )
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+    async def test_action_mismatch_returns_422(self, client: AsyncClient, admin_full_token: str):
+        """name action part must match the action field (covers schema line 66)."""
+        resp = await client.post(
+            "/api/v1/admin/permissions",
+            headers=_auth(admin_full_token),
+            json={"name": "users:write", "resource": "users", "action": "read"},
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 

@@ -1,5 +1,8 @@
 """Unit tests for RBAC dependency factories."""
 
+from unittest.mock import AsyncMock, patch
+
+import pytest
 from fastapi import Depends, FastAPI, status
 from httpx import ASGITransport, AsyncClient
 
@@ -12,6 +15,14 @@ from app.core.auth.rbac import (
     require_role,
 )
 from app.core.middleware.auth import AuthMiddleware
+from app.core.services.redis_service import redis_service as _redis_service
+
+
+@pytest.fixture(autouse=True)
+def _mock_jti_check():
+    """Patch JTI verification so tests don't require a running Redis instance."""
+    with patch.object(_redis_service, "verify_access_jti", new=AsyncMock(return_value=True)):
+        yield
 
 
 def _make_app(dependency) -> FastAPI:

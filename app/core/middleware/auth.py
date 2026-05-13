@@ -11,7 +11,7 @@ from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.config.settings import settings
-from app.core.constants import JWT_SCOPE_ACCESS, ResponseFields
+from app.core.constants import JWT_SCOPE_ACCESS, ErrorMessages, ResponseFields
 from app.core.services.redis_service import redis_service
 from app.utils.constants import ResponseMessages
 
@@ -57,7 +57,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 if not await redis_service.verify_access_jti(int(user_id_str), jti):
                     return self._unauthorized(ResponseMessages.INVALID_TOKEN)
             except RuntimeError:
-                logger.warning("JTI validation skipped: Redis not connected")
+                logger.error("JTI validation failed: Redis not connected — rejecting request")
+                return self._service_unavailable()
 
         request.state.token_payload = payload
         return await call_next(request)
@@ -70,4 +71,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
             content={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: message},
+        )
+
+    @staticmethod
+    def _service_unavailable() -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ErrorMessages.SERVICE_UNAVAILABLE},
         )

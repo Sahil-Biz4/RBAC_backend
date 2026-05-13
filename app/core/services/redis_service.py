@@ -67,5 +67,27 @@ class RedisService:
         await self.delete_refresh_token(user_id)
         await self.delete_access_jti(user_id)
 
+    async def increment_ip_failures(self, key_prefix: str, ip: str, ttl_seconds: int) -> int:
+        """Increment the failure counter for an IP and return the new count.
+
+        The TTL is set from the first increment so the lockout window is fixed,
+        not sliding — the IP is released exactly one window after the first failure.
+        Uses SETNX to set TTL only on key creation; subsequent failures extend nothing.
+        """
+        key = f"{key_prefix}:{ip}"
+        count = await self.client.incr(key)
+        if count == 1:
+            await self.client.expire(key, ttl_seconds)
+        return count
+
+    async def get_ip_failures(self, key_prefix: str, ip: str) -> int:
+        """Return the current failure count for an IP (0 if no record exists)."""
+        value = await self.client.get(f"{key_prefix}:{ip}")
+        return int(value) if value else 0
+
+    async def clear_ip_failures(self, key_prefix: str, ip: str) -> None:
+        """Remove the failure counter after a successful operation."""
+        await self.client.delete(f"{key_prefix}:{ip}")
+
 
 redis_service = RedisService()

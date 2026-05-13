@@ -54,3 +54,13 @@ lines-after-imports = 2
 quote-style = "double"
 indent-style = "space"
 docstring-code-format = true
+
+# ── Coverage ───────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/alembic/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false

@@ -33,7 +33,7 @@ async def _seed_otp(db: AsyncSession, user: User, otp: str, purpose: str) -> Non
 
 class TestRegister:
     async def test_new_user_returns_201(self, client: AsyncClient):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock, return_value=True):
+        with patch("app.features.auth.account_service.send_otp_email", new_callable=AsyncMock, return_value=True):
             resp = await client.post(
                 "/api/v1/auth/register",
                 json={"name": "New User", "email": "new@example.com", "password": "Password1!"},
@@ -42,7 +42,7 @@ class TestRegister:
         assert resp.json()["success"] is True
 
     async def test_duplicate_email_returns_409(self, client: AsyncClient, sample_user: User):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock, return_value=True):
+        with patch("app.features.auth.account_service.send_otp_email", new_callable=AsyncMock, return_value=True):
             resp = await client.post(
                 "/api/v1/auth/register",
                 json={"name": "Dup", "email": sample_user.email, "password": "Password1!"},
@@ -114,7 +114,7 @@ class TestLogin:
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
     async def test_unverified_email_returns_200_with_flag(self, client: AsyncClient, unverified_user: User, mock_redis):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock, return_value=True):
+        with patch("app.features.auth.session_service.send_otp_email", new_callable=AsyncMock, return_value=True):
             resp = await client.post(
                 "/api/v1/auth/login",
                 json={"email": unverified_user.email, "password": "Password1!"},
@@ -209,7 +209,7 @@ class TestVerifyOtp:
 
 class TestResendOtp:
     async def test_valid_email_returns_200(self, client: AsyncClient, unverified_user: User):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock, return_value=True):
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock, return_value=True):
             resp = await client.post(
                 "/api/v1/auth/resend-otp",
                 json={"email": unverified_user.email, "purpose": "email_verification"},
@@ -329,7 +329,7 @@ class TestForgotPassword:
         assert resp.json()["success"] is True
 
     async def test_returns_200_for_known_email(self, client: AsyncClient, sample_user: User):
-        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock, return_value=True):
+        with patch("app.features.auth.otp_service.send_otp_email", new_callable=AsyncMock, return_value=True):
             resp = await client.post("/api/v1/auth/forgot-password", json={"email": sample_user.email})
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True

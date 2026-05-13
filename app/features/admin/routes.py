@@ -10,6 +10,7 @@ from app.core.constants import APITags, ResponseFields
 from app.core.database import get_db
 from app.core.exceptions import AppError
 from app.core.limiter import limiter
+from app.core.response import paginated_json
 from app.features.admin import service
 from app.features.admin.routes_definition import routes as r
 from app.features.admin.schemas import AssignPermissionIn, AssignRoleIn, PermissionIn, RoleIn
@@ -30,42 +31,35 @@ router = APIRouter(
 @limiter.limit("60/minute")
 async def list_roles(
     request: Request,
-    page: int = 1,
-    limit: int = 20,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
     search: str | None = Query(default=None, max_length=100),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     """Return a paginated list of roles. Requires ``roles:read`` permission."""
     skip = max(0, (page - 1) * limit)
     roles, total = await service.list_roles(db=db, skip=skip, limit=limit, search=search)
+    roles_data = [
+        {
+            "id": role.id,
+            "name": role.name,
+            "description": role.description,
+            "permissions": [
+                {
+                    "id": rp.permission.id,
+                    "name": rp.permission.name,
+                    "resource": rp.permission.resource,
+                    "action": rp.permission.action,
+                    "description": rp.permission.description,
+                }
+                for rp in role.role_permissions
+            ],
+        }
+        for role in roles
+    ]
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={
-            ResponseFields.SUCCESS: True,
-            "roles": [
-                {
-                    "id": role.id,
-                    "name": role.name,
-                    "description": role.description,
-                    "permissions": [
-                        {
-                            "id": rp.permission.id,
-                            "name": rp.permission.name,
-                            "resource": rp.permission.resource,
-                            "action": rp.permission.action,
-                            "description": rp.permission.description,
-                        }
-                        for rp in role.role_permissions
-                    ],
-                }
-                for role in roles
-            ],
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "has_next": (skip + limit) < total,
-            ResponseFields.SEARCH: search,
-        },
+        content=paginated_json("roles", roles_data, total, page, limit, skip, **{ResponseFields.SEARCH: search}),
     )
 
 
@@ -193,25 +187,19 @@ async def revoke_permission_from_role(
 @limiter.limit("60/minute")
 async def list_permissions(
     request: Request,
-    page: int = 1,
-    limit: int = 20,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
     skip = max(0, (page - 1) * limit)
     permissions, total = await service.list_permissions(db=db, skip=skip, limit=limit)
+    perms_data = [
+        {"id": p.id, "name": p.name, "resource": p.resource, "action": p.action, "description": p.description}
+        for p in permissions
+    ]
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={
-            ResponseFields.SUCCESS: True,
-            "permissions": [
-                {"id": p.id, "name": p.name, "resource": p.resource, "action": p.action, "description": p.description}
-                for p in permissions
-            ],
-            "total": total,
-            "page": page,
-            "limit": limit,
-            "has_next": (skip + limit) < total,
-        },
+        content=paginated_json("permissions", perms_data, total, page, limit, skip),
     )
 
 

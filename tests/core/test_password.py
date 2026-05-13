@@ -40,6 +40,14 @@ class TestVerifyPassword:
         hashed = hash_password("Password1!")
         assert verify_password("password1!", hashed) is False
 
+    def test_malformed_hash_returns_false(self):
+        """A completely invalid (non-Argon2) hash must return False, not raise."""
+        assert verify_password("AnyPassword1!", "not-a-valid-hash") is False
+
+    def test_truncated_hash_returns_false(self):
+        """A partially-valid Argon2 hash that is truncated must return False."""
+        assert verify_password("AnyPassword1!", "$argon2id$v=19$m=65536") is False
+
 
 class TestNeedsRehash:
     def test_fresh_argon2_hash_does_not_need_rehash(self):

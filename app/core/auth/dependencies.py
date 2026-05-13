@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.auth.jwt_handler import decode_password_reset_token
+from app.core.auth.jwt_types import AccessTokenPayload
 from app.core.database import get_db
 from app.models.user import User
 from app.utils.constants import ErrorCodes, ResponseMessages
@@ -18,13 +19,13 @@ from app.utils.constants import ErrorCodes, ResponseMessages
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
-async def get_current_user_payload(request: Request) -> dict:
+async def get_current_user_payload(request: Request) -> AccessTokenPayload:
     """Extract the pre-validated JWT payload attached by AuthMiddleware.
 
     Raises:
         HTTPException 401: If the token payload is absent from request state.
     """
-    payload = getattr(request.state, "token_payload", None)
+    payload: AccessTokenPayload | None = getattr(request.state, "token_payload", None)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -34,7 +35,7 @@ async def get_current_user_payload(request: Request) -> dict:
 
 
 async def get_current_user(
-    payload: dict = Depends(get_current_user_payload),
+    payload: AccessTokenPayload = Depends(get_current_user_payload),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Resolve the authenticated User record from the database.
@@ -72,28 +73,6 @@ async def get_current_user(
         )
 
     return user
-
-
-async def get_current_admin_user(
-    current_user: User = Depends(get_current_user),
-    payload: dict = Depends(get_current_user_payload),
-) -> User:
-    """Ensure the current user holds an admin-level role.
-
-    Checks the 'roles' claim in the JWT for 'admin' or 'super_admin'.
-
-    Raises:
-        HTTPException 403: If the user does not have an admin role.
-    """
-    from app.utils.constants import RoleNames
-
-    roles: list[str] = payload.get("roles", [])
-    if not any(r in roles for r in RoleNames.ADMIN_ROLES):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"success": False, "message": ResponseMessages.ADMIN_ONLY},
-        )
-    return current_user
 
 
 async def get_password_reset_user(

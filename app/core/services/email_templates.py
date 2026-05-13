@@ -1,6 +1,6 @@
 """Branded HTML email templates — all display strings defined as constants."""
 
-from app.utils.constants import APP_NAME, BRAND_COLOR, SUPPORT_EMAIL
+from app.core.config.settings import settings
 
 
 def otp_email_html(otp: str, purpose: str) -> str:
@@ -13,13 +13,17 @@ def otp_email_html(otp: str, purpose: str) -> str:
     Returns:
         HTML string ready to send as the email body.
     """
+    app_name = settings.app_name
+    brand_color = settings.brand_color
+    support_email = settings.support_email
+
     return f"""
     <!DOCTYPE html>
     <html>
     <head>
       <meta charset="UTF-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-      <title>{APP_NAME} — OTP</title>
+      <title>{app_name} — OTP</title>
     </head>
     <body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,sans-serif;">
       <table width="100%" cellpadding="0" cellspacing="0"
@@ -33,9 +37,9 @@ def otp_email_html(otp: str, purpose: str) -> str:
               <!-- Header -->
               <tr>
                 <td align="center"
-                    style="background:{BRAND_COLOR};padding:32px 40px;">
+                    style="background:{brand_color};padding:32px 40px;">
                   <h1 style="margin:0;color:#ffffff;font-size:24px;font-weight:700;">
-                    {APP_NAME}
+                    {app_name}
                   </h1>
                 </td>
               </tr>
@@ -50,7 +54,7 @@ def otp_email_html(otp: str, purpose: str) -> str:
                     <span style="display:inline-block;background:#f0f4ff;
                                  border-radius:8px;padding:16px 40px;
                                  font-size:36px;font-weight:700;
-                                 letter-spacing:12px;color:{BRAND_COLOR};">
+                                 letter-spacing:12px;color:{brand_color};">
                       {otp}
                     </span>
                   </div>
@@ -59,8 +63,8 @@ def otp_email_html(otp: str, purpose: str) -> str:
                   </p>
                   <p style="margin:0;font-size:14px;color:#666666;">
                     If you did not request this, please contact us at
-                    <a href="mailto:{SUPPORT_EMAIL}"
-                       style="color:{BRAND_COLOR};">{SUPPORT_EMAIL}</a>.
+                    <a href="mailto:{support_email}"
+                       style="color:{brand_color};">{support_email}</a>.
                   </p>
                 </td>
               </tr>
@@ -70,7 +74,7 @@ def otp_email_html(otp: str, purpose: str) -> str:
                 <td align="center"
                     style="padding:24px 40px;border-top:1px solid #eeeeee;">
                   <p style="margin:0;font-size:12px;color:#999999;">
-                    &copy; {APP_NAME}. All rights reserved.
+                    &copy; {app_name}. All rights reserved.
                   </p>
                 </td>
               </tr>

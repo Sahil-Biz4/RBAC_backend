@@ -5,15 +5,16 @@ Higher-privilege actions do NOT automatically grant lower ones — each
 permission must be explicitly assigned to a role.
 """
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from fastapi import Depends, HTTPException, status
 
 from app.core.auth.dependencies import get_current_user_payload
+from app.core.auth.jwt_types import AccessTokenPayload
 from app.utils.constants import ErrorCodes, ResponseMessages
 
 
-def require_role(role: str) -> Callable:
+def require_role(role: str) -> Callable[..., Awaitable[None]]:
     """Return a FastAPI dependency that enforces a single required role.
 
     Usage:
@@ -26,7 +27,7 @@ def require_role(role: str) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_roles: list[str] = payload.get("roles", [])
         if role not in user_roles:
             raise HTTPException(
@@ -41,7 +42,7 @@ def require_role(role: str) -> Callable:
     return _dependency
 
 
-def require_any_role(roles: list[str]) -> Callable:
+def require_any_role(roles: list[str]) -> Callable[..., Awaitable[None]]:
     """Return a dependency that passes if the user holds AT LEAST ONE of the given roles.
 
     Usage:
@@ -54,7 +55,7 @@ def require_any_role(roles: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_roles: list[str] = payload.get("roles", [])
         if not any(r in user_roles for r in roles):
             raise HTTPException(
@@ -69,7 +70,7 @@ def require_any_role(roles: list[str]) -> Callable:
     return _dependency
 
 
-def require_permission(permission: str) -> Callable:
+def require_permission(permission: str) -> Callable[..., Awaitable[None]]:
     """Return a dependency that enforces a single fine-grained permission.
 
     Usage:
@@ -82,7 +83,7 @@ def require_permission(permission: str) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         if permission not in user_permissions:
             raise HTTPException(
@@ -97,7 +98,7 @@ def require_permission(permission: str) -> Callable:
     return _dependency
 
 
-def require_any_permission(permissions: list[str]) -> Callable:
+def require_any_permission(permissions: list[str]) -> Callable[..., Awaitable[None]]:
     """Return a dependency that passes if the user holds AT LEAST ONE of the given permissions.
 
     Args:
@@ -107,7 +108,7 @@ def require_any_permission(permissions: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         if not any(p in user_permissions for p in permissions):
             raise HTTPException(
@@ -122,7 +123,7 @@ def require_any_permission(permissions: list[str]) -> Callable:
     return _dependency
 
 
-def require_all_permissions(permissions: list[str]) -> Callable:
+def require_all_permissions(permissions: list[str]) -> Callable[..., Awaitable[None]]:
     """Return a dependency that passes only if the user holds ALL given permissions.
 
     Args:
@@ -132,7 +133,7 @@ def require_all_permissions(permissions: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         missing = [p for p in permissions if p not in user_permissions]
         if missing:

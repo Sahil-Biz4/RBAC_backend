@@ -5,10 +5,11 @@ and validation. Supports mode-specific .env files (local/development/staging/pro
 Zero manual os.environ.get() calls — all values are declarative field definitions.
 """
 
+import logging
 import os
 from pathlib import Path
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 from app.core import constants
@@ -87,8 +88,32 @@ class Settings(BaseSettings):
     cors_allowed_methods_raw: str = Field(default="GET,POST,PUT,DELETE,PATCH", alias="CORS_ALLOWED_METHODS")
     cors_allowed_headers_raw: str = Field(default="Content-Type,Authorization", alias="CORS_ALLOWED_HEADERS")
 
+    # ── Branding ─────────────────────────────────────────────────────────────
+    project_name: str = Field(default="Auth Module", alias="PROJECT_NAME")
+    app_name: str = Field(default="AuthModule", alias="APP_NAME")
+    support_email: str = Field(default="support@yourdomain.com", alias="SUPPORT_EMAIL")
+    brand_color: str = Field(default="#1a1a2e", alias="BRAND_COLOR")
+
+    # ── Permissions ───────────────────────────────────────────────────────────
+    allowed_resources_raw: str = Field(
+        default="users,roles,permissions,profile",
+        alias="ALLOWED_RESOURCES",
+    )
+    allowed_actions_raw: str = Field(
+        default="read,create,update,delete",
+        alias="ALLOWED_ACTIONS",
+    )
+
     # ── Admin ─────────────────────────────────────────────────────────────────
     admin_secret_key: str = Field(default="", alias="ADMIN_SECRET_KEY")
+    admin_register_max_failures: int = Field(
+        default=constants.ADMIN_REGISTER_MAX_FAILURES,
+        alias="ADMIN_REGISTER_MAX_FAILURES",
+    )
+    admin_register_lockout_minutes: int = Field(
+        default=constants.ADMIN_REGISTER_LOCKOUT_MINUTES,
+        alias="ADMIN_REGISTER_LOCKOUT_MINUTES",
+    )
 
     # ── Docs Auth ─────────────────────────────────────────────────────────────
     docs_username: str = Field(default="", alias="DOCS_USERNAME")
@@ -107,6 +132,15 @@ class Settings(BaseSettings):
         if not v:
             raise ValueError("ADMIN_SECRET_KEY must be set and non-empty.")
         return v
+
+    @model_validator(mode="after")
+    def _warn_missing_otp_secret(self) -> "Settings":
+        if not self.otp_secret_key:
+            logging.getLogger(__name__).warning(
+                "OTP_SECRET_KEY is not configured — falling back to JWT_SECRET_KEY. "
+                "Set a dedicated OTP_SECRET_KEY in production for independent key rotation."
+            )
+        return self
 
     @computed_field  # type: ignore[misc]
     @property
@@ -133,6 +167,18 @@ class Settings(BaseSettings):
     def cors_allowed_headers(self) -> list[str]:
         """Parse the comma-separated CORS_ALLOWED_HEADERS string into a list."""
         return [h.strip() for h in self.cors_allowed_headers_raw.split(",") if h.strip()]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def allowed_resources(self) -> set[str]:
+        """Parse the comma-separated ALLOWED_RESOURCES string into a set."""
+        return {r.strip() for r in self.allowed_resources_raw.split(",") if r.strip()}
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def allowed_actions(self) -> set[str]:
+        """Parse the comma-separated ALLOWED_ACTIONS string into a set."""
+        return {a.strip() for a in self.allowed_actions_raw.split(",") if a.strip()}
 
     @computed_field  # type: ignore[misc]
     @property

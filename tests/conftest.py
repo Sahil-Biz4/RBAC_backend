@@ -186,6 +186,7 @@ async def sample_admin_role(db: AsyncSession) -> Role:
     for perm_name in [Permissions.USERS_READ, Permissions.USERS_UPDATE, Permissions.USERS_DELETE]:
         perm = await _create_permission(db, perm_name)
         await _assign_permission(db, role.id, perm.id)
+    db.expire(role, ["role_permissions"])
     return role
 
 

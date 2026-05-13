@@ -2,7 +2,7 @@
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.core.services.email_service import send_otp_email
+from app.core.services.email_service import _send_via_sendgrid, send_otp_email
 from app.core.services.email_templates import otp_email_html
 
 
@@ -54,3 +54,22 @@ class TestSendOtpEmail:
         ):
             result = await send_otp_email("to@example.com", "123456", "email_verification")
         assert result is False
+
+
+class TestSendViaSendgrid:
+    def test_calls_sendgrid_client_and_returns_status_code(self):
+        """_send_via_sendgrid must instantiate the client, call send(), and return the status code."""
+        mock_response = MagicMock()
+        mock_response.status_code = 202
+
+        mock_client_instance = MagicMock()
+        mock_client_instance.send.return_value = mock_response
+
+        mock_mail = MagicMock()
+
+        with patch("app.core.services.email_service.SendGridAPIClient", return_value=mock_client_instance) as mock_cls:
+            result = _send_via_sendgrid("test-api-key", mock_mail)
+
+        mock_cls.assert_called_once_with("test-api-key")
+        mock_client_instance.send.assert_called_once_with(mock_mail)
+        assert result == 202

@@ -7,14 +7,12 @@ from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth.dependencies import (
-    get_current_admin_user,
     get_current_user,
     get_current_user_payload,
     get_password_reset_user,
 )
 from app.core.auth.jwt_handler import create_password_reset_token
 from app.models.user import User
-from app.utils.constants import RoleNames
 
 
 class TestGetCurrentUserPayload:
@@ -73,30 +71,6 @@ class TestGetCurrentUser:
         payload = {"sub": str(sample_user.id)}
         result = await get_current_user(payload=payload, db=db)
         assert result.id == sample_user.id
-
-
-class TestGetCurrentAdminUser:
-    async def test_returns_user_for_admin_role(self, sample_admin_user: User):
-        payload = {"roles": [RoleNames.ADMIN]}
-        result = await get_current_admin_user(current_user=sample_admin_user, payload=payload)
-        assert result == sample_admin_user
-
-    async def test_returns_user_for_super_admin_role(self, sample_admin_user: User):
-        payload = {"roles": [RoleNames.SUPER_ADMIN]}
-        result = await get_current_admin_user(current_user=sample_admin_user, payload=payload)
-        assert result == sample_admin_user
-
-    async def test_raises_403_for_non_admin(self, sample_user: User):
-        payload = {"roles": [RoleNames.USER]}
-        with pytest.raises(HTTPException) as exc_info:
-            await get_current_admin_user(current_user=sample_user, payload=payload)
-        assert exc_info.value.status_code == 403
-
-    async def test_raises_403_for_empty_roles(self, sample_user: User):
-        payload = {"roles": []}
-        with pytest.raises(HTTPException) as exc_info:
-            await get_current_admin_user(current_user=sample_user, payload=payload)
-        assert exc_info.value.status_code == 403
 
 
 class TestGetPasswordResetUser:

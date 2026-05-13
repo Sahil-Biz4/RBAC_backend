@@ -1,6 +1,6 @@
 """Unit tests for utility helper functions."""
 
-from app.utils.helpers import generate_numeric_otp, hash_otp, mask_email, verify_otp_hash
+from app.utils.helpers import generate_numeric_otp, hash_otp, verify_otp_hash
 
 
 class TestGenerateNumericOtp:
@@ -54,26 +54,3 @@ class TestVerifyOtpHash:
         hashed = hash_otp(otp)
         tampered = hashed[:-1] + "X"
         assert verify_otp_hash(otp, tampered) is False
-
-
-class TestMaskEmail:
-    def test_masks_long_local_part(self):
-        result = mask_email("john.doe@example.com")
-        assert result == "j******e@example.com"
-
-    def test_short_local_part_gets_single_asterisk(self):
-        result = mask_email("ab@example.com")
-        assert result == "a*@example.com"
-
-    def test_very_short_local_part(self):
-        result = mask_email("a@example.com")
-        assert result == "a*@example.com"
-
-    def test_domain_is_preserved(self):
-        result = mask_email("user@gmail.com")
-        assert result.endswith("@gmail.com")
-
-    def test_format_is_correct(self):
-        result = mask_email("hello@world.org")
-        assert "@" in result
-        assert result.endswith("@world.org")

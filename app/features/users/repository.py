@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.associations import UserRole
-from app.models.role import Role
+from app.models.loader_strategies import USER_WITH_ROLES_AND_PERMISSIONS as _USER_WITH_ROLES_AND_PERMISSIONS
 from app.models.user import User
 
 
@@ -43,9 +43,7 @@ async def get_all_users(
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
     """Fetch a user by primary key with roles loaded."""
     result = await db.execute(
-        select(User)
-        .where(User.id == user_id, User.deleted_at.is_(None))
-        .options(selectinload(User.user_roles).selectinload(UserRole.role).selectinload(Role.role_permissions))
+        select(User).where(User.id == user_id, User.deleted_at.is_(None)).options(_USER_WITH_ROLES_AND_PERMISSIONS)
     )
     return result.scalars().first()
 

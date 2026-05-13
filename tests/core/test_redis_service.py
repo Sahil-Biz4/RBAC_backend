@@ -143,3 +143,43 @@ class TestDeleteAllUserSessions:
         calls = [c.args[0] for c in mock_client.delete.call_args_list]
         assert "refresh_token:1" in calls
         assert "access_jti:1" in calls
+
+
+class TestIncrementIpFailures:
+    async def test_increments_counter_and_sets_ttl_on_first_call(self, redis_svc):
+        """On the first increment (count == 1), the TTL must be set."""
+        svc, mock_client = redis_svc
+        mock_client.incr.return_value = 1
+        result = await svc.increment_ip_failures("admin_fail", "1.2.3.4", 300)
+        mock_client.incr.assert_called_once_with("admin_fail:1.2.3.4")
+        mock_client.expire.assert_called_once_with("admin_fail:1.2.3.4", 300)
+        assert result == 1
+
+    async def test_subsequent_increments_skip_ttl_reset(self, redis_svc):
+        """On count > 1, the TTL must NOT be reset (non-sliding window)."""
+        svc, mock_client = redis_svc
+        mock_client.incr.return_value = 2
+        result = await svc.increment_ip_failures("admin_fail", "1.2.3.4", 300)
+        mock_client.expire.assert_not_called()
+        assert result == 2
+
+
+class TestGetIpFailures:
+    async def test_returns_count_when_key_exists(self, redis_svc):
+        svc, mock_client = redis_svc
+        mock_client.get.return_value = "3"
+        result = await svc.get_ip_failures("admin_fail", "1.2.3.4")
+        assert result == 3
+
+    async def test_returns_zero_when_key_missing(self, redis_svc):
+        svc, mock_client = redis_svc
+        mock_client.get.return_value = None
+        result = await svc.get_ip_failures("admin_fail", "1.2.3.4")
+        assert result == 0
+
+
+class TestClearIpFailures:
+    async def test_deletes_failure_key(self, redis_svc):
+        svc, mock_client = redis_svc
+        await svc.clear_ip_failures("admin_fail", "1.2.3.4")
+        mock_client.delete.assert_called_once_with("admin_fail:1.2.3.4")

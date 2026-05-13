@@ -39,13 +39,3 @@ def verify_otp_hash(otp: str, stored_hash: str) -> bool:
     """
     expected = hash_otp(otp)
     return hmac.compare_digest(expected, stored_hash)
-
-
-def mask_email(email: str) -> str:
-    """Return a partially masked email for safe display in responses.
-
-    Example: john.doe@example.com → jo*****e@example.com
-    """
-    local, _, domain = email.partition("@")
-    masked_local = local[0] + "*" if len(local) <= 2 else local[0] + "*" * (len(local) - 2) + local[-1]
-    return f"{masked_local}@{domain}"
