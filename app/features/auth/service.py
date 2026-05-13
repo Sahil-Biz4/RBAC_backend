@@ -25,7 +25,12 @@ from app.features.auth import repository as repo
 from app.utils.constants import ErrorCodes, ResponseCodes, ResponseMessages, RoleNames
 from app.utils.helpers import generate_numeric_otp, hash_otp, verify_otp_hash
 
+
 logger = logging.getLogger(__name__)
+
+# Pre-computed TTL values (seconds) derived from settings at import time.
+_refresh_ttl: int = settings.jwt_refresh_token_expire_minutes * 60
+_access_ttl: int = settings.jwt_access_token_expire_minutes * 60
 
 
 async def register_user(db: AsyncSession, name: str, email: str, password: str) -> dict:
@@ -39,9 +44,9 @@ async def register_user(db: AsyncSession, name: str, email: str, password: str) 
         raise ConflictError(ErrorCodes.EMAIL_EXISTS, ResponseMessages.EMAIL_ALREADY_EXISTS)
 
     pw_hash = hash_password(password)
-    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash, commit=False)
+    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash)
 
-    await repo.assign_role_to_user(db=db, user_id=user.id, role_name=RoleNames.DEFAULT, commit=False)
+    await repo.assign_role_to_user(db=db, user_id=user.id, role_name=RoleNames.DEFAULT)
 
     otp = generate_numeric_otp()
     await repo.create_email_otp(
@@ -51,6 +56,7 @@ async def register_user(db: AsyncSession, name: str, email: str, password: str) 
         purpose=OtpPurpose.EMAIL_VERIFICATION,
         expire_minutes=settings.otp_expire_minutes,
     )
+    await db.commit()
 
     await send_otp_email(to_email=email, otp=otp, purpose="email verification")
 
@@ -72,10 +78,11 @@ async def register_admin(db: AsyncSession, name: str, email: str, password: str,
         raise ConflictError(ErrorCodes.EMAIL_EXISTS, ResponseMessages.EMAIL_ALREADY_EXISTS)
 
     pw_hash = hash_password(password)
-    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash, commit=False)
+    user = await repo.create_user(db=db, name=name, email=email, password_hash=pw_hash)
     user.is_email_verified = True
 
     await repo.assign_role_to_user(db=db, user_id=user.id, role_name=RoleNames.ADMIN)
+    await db.commit()
 
     return {"success": True, "success_code": ResponseCodes.REGISTER_SUCCESS}
 
@@ -102,6 +109,7 @@ async def login_user(db: AsyncSession, email: str, password: str) -> dict:
             purpose=OtpPurpose.EMAIL_VERIFICATION,
             expire_minutes=settings.otp_expire_minutes,
         )
+        await db.commit()
         await send_otp_email(to_email=email, otp=otp, purpose="email verification")
         return {
             "success": False,
@@ -119,14 +127,17 @@ async def login_user(db: AsyncSession, email: str, password: str) -> dict:
 
     roles, permissions = await repo.get_user_roles_and_permissions(db=db, user_id=user.id)
 
-    access_token, _ = create_access_token(
-        subject=user.id, email=user.email, roles=roles, permissions=permissions,
+    access_token, access_jti = create_access_token(
+        subject=user.id,
+        email=user.email,
+        roles=roles,
+        permissions=permissions,
         perms_version=user.perms_version,
     )
     refresh_token, _ = create_refresh_token(subject=user.id, email=user.email)
 
-    ttl = settings.jwt_refresh_token_expire_minutes * 60
-    await redis_service.store_refresh_token(user.id, refresh_token, ttl)
+    await redis_service.store_refresh_token(user.id, refresh_token, _refresh_ttl)
+    await redis_service.store_access_jti(user.id, access_jti, _access_ttl)
 
     return {
         "success": True,
@@ -158,14 +169,17 @@ async def refresh_tokens(db: AsyncSession, user_id: int, refresh_token: str) -> 
 
     roles, permissions = await repo.get_user_roles_and_permissions(db=db, user_id=user.id)
 
-    new_access, _ = create_access_token(
-        subject=user.id, email=user.email, roles=roles, permissions=permissions,
+    new_access, new_access_jti = create_access_token(
+        subject=user.id,
+        email=user.email,
+        roles=roles,
+        permissions=permissions,
         perms_version=user.perms_version,
     )
     new_refresh, _ = create_refresh_token(subject=user.id, email=user.email)
 
-    ttl = settings.jwt_refresh_token_expire_minutes * 60
-    await redis_service.store_refresh_token(user.id, new_refresh, ttl)
+    await redis_service.store_refresh_token(user.id, new_refresh, _refresh_ttl)
+    await redis_service.store_access_jti(user.id, new_access_jti, _access_ttl)
 
     return {
         "success": True,
@@ -177,9 +191,10 @@ async def refresh_tokens(db: AsyncSession, user_id: int, refresh_token: str) -> 
 
 
 async def logout_user(user_id: int) -> dict:
-    """Delete the Redis refresh token. Intentionally lenient — always returns success."""
+    """Delete the Redis refresh token and access JTI. Intentionally lenient — always returns success."""
     try:
         await redis_service.delete_refresh_token(user_id)
+        await redis_service.delete_access_jti(user_id)
     except Exception as exc:
         logger.warning("logout_user: token deletion failed — %s", exc)
 
@@ -210,20 +225,22 @@ async def verify_otp(db: AsyncSession, email: str, otp: str, purpose: str) -> di
 
     await repo.mark_otp_used(db=db, otp=active_otp)
 
-    # Mark email as verified for both purposes - user proved they own the email
     if not user.is_email_verified:
         await repo.verify_user_email(db=db, user=user)
 
     if purpose == OtpPurpose.EMAIL_VERIFICATION:
         roles, permissions = await repo.get_user_roles_and_permissions(db=db, user_id=user.id)
-        access_token, _ = create_access_token(
-            subject=user.id, email=user.email, roles=roles, permissions=permissions,
+        access_token, access_jti = create_access_token(
+            subject=user.id,
+            email=user.email,
+            roles=roles,
+            permissions=permissions,
             perms_version=user.perms_version,
         )
         refresh_token, _ = create_refresh_token(subject=user.id, email=user.email)
 
-        ttl = settings.jwt_refresh_token_expire_minutes * 60
-        await redis_service.store_refresh_token(user.id, refresh_token, ttl)
+        await redis_service.store_refresh_token(user.id, refresh_token, _refresh_ttl)
+        await redis_service.store_access_jti(user.id, access_jti, _access_ttl)
 
         return {
             "success": True,
@@ -273,6 +290,7 @@ async def resend_otp(db: AsyncSession, email: str, purpose: str) -> dict:
         purpose=purpose,
         expire_minutes=settings.otp_expire_minutes,
     )
+    await db.commit()
     await send_otp_email(to_email=email, otp=otp, purpose=purpose.replace("_", " "))
 
     return {"success": True, "success_code": ResponseCodes.OTP_RESENT}
@@ -298,6 +316,7 @@ async def forgot_password(db: AsyncSession, email: str) -> dict:
                 purpose=OtpPurpose.PASSWORD_RESET,
                 expire_minutes=settings.otp_expire_minutes,
             )
+            await db.commit()
             await send_otp_email(to_email=email, otp=otp, purpose="password reset")
 
     return {"success": True, "success_code": ResponseCodes.PASSWORD_RESET_EMAIL_SENT}
@@ -305,9 +324,6 @@ async def forgot_password(db: AsyncSession, email: str) -> dict:
 
 async def change_password(db: AsyncSession, user_id: int, new_password: str) -> dict:
     """Update the user's password hash and revoke all active sessions.
-
-    Called after password-reset token validation. Revoking all sessions
-    forces re-authentication on all devices after a password change.
 
     Raises:
         NotFoundError: User not found (should not happen in normal flow).

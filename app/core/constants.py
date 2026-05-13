@@ -1,11 +1,14 @@
-"""Core system-level constants — never hardcode these values directly in the codebase."""
+"""Core system-level constants — never hardcode these values directly in the codebase.
+
+For user-facing response strings, role/permission names, and error codes see app/utils/constants.py.
+"""
 
 from enum import Enum
 
 
 # ── JWT ────────────────────────────────────────────────────────────────────
 JWT_ALGORITHM = "HS256"
-JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 2
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES = 15
 JWT_REFRESH_TOKEN_EXPIRE_MINUTES = 10080  # 7 days
 PASSWORD_RESET_TOKEN_EXPIRE_MINUTES = 15
 
@@ -16,7 +19,6 @@ JWT_SCOPE_PASSWORD_RESET = "password_reset"
 # ── OTP ────────────────────────────────────────────────────────────────────
 OTP_EXPIRE_MINUTES = 10
 OTP_MAX_VERIFY_ATTEMPTS = 5
-OTP_LOCKOUT_MINUTES = 15
 OTP_MAX_RESENDS = 5
 OTP_RESEND_WINDOW_MINUTES = 60
 OTP_LENGTH = 6
@@ -60,6 +62,7 @@ class ResponseFields:
     ACCESS_TOKEN = "access_token"
     REFRESH_TOKEN = "refresh_token"
     TOKEN_TYPE = "token_type"
+    SEARCH = "search"
 
 
 # ── Health check ───────────────────────────────────────────────────────────
@@ -77,6 +80,8 @@ class HealthCheckStatus:
 
 
 # ── Error Messages ─────────────────────────────────────────────────────────
+# HTTP-layer fallback strings used by the global exception handler.
+# Domain-level user-facing messages live in app/utils/constants.py (ResponseMessages).
 class ErrorMessages:
     INTERNAL_SERVER_ERROR = "An unexpected error occurred. Please try again later."
     UNAUTHORIZED = "Authentication required."

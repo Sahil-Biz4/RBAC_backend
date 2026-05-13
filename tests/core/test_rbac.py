@@ -1,12 +1,16 @@
 """Unit tests for RBAC dependency factories."""
 
-import pytest
 from fastapi import Depends, FastAPI, status
 from httpx import ASGITransport, AsyncClient
 
 from app.core.auth.jwt_handler import create_access_token
-from app.core.auth.rbac import require_all_permissions, require_any_permission, require_any_role, require_permission, require_role
-from app.core.config.settings import settings
+from app.core.auth.rbac import (
+    require_all_permissions,
+    require_any_permission,
+    require_any_role,
+    require_permission,
+    require_role,
+)
 from app.core.middleware.auth import AuthMiddleware
 
 

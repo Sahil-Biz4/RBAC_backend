@@ -1,18 +1,17 @@
 """Integration tests for admin feature routes — roles, permissions, user assignments."""
 
-import pytest
 from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.jwt_handler import create_access_token
 from app.models.permission import Permission
 from app.models.role import Role
 from app.models.user import User
-from app.utils.constants import Permissions, RoleNames
+from app.utils.constants import RoleNames
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
 
 def _auth(token: str) -> dict:
     return {"Authorization": f"Bearer {token}"}
@@ -20,6 +19,7 @@ def _auth(token: str) -> dict:
 
 async def _make_role(db: AsyncSession, name: str = "testrole") -> Role:
     from app.features.admin import repository as repo
+
     return await repo.create_role(db=db, name=name, description="test")
 
 
@@ -27,23 +27,21 @@ async def _make_permission(
     db: AsyncSession, name: str = "users:create", resource: str = "users", action: str = "create"
 ) -> Permission:
     from app.features.admin import repository as repo
+
     return await repo.create_permission(db=db, name=name, resource=resource, action=action, description=None)
 
 
 # ── List Roles ─────────────────────────────────────────────────────────────
 
+
 class TestListRoles:
-    async def test_with_roles_read_permission_returns_200(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_with_roles_read_permission_returns_200(self, client: AsyncClient, admin_full_token: str):
         resp = await client.get("/api/v1/admin/roles", headers=_auth(admin_full_token))
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True
         assert "roles" in resp.json()
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, user_token: str):
         resp = await client.get("/api/v1/admin/roles", headers=_auth(user_token))
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
@@ -51,13 +49,71 @@ class TestListRoles:
         resp = await client.get("/api/v1/admin/roles")
         assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
+    async def test_search_by_name_returns_matching_roles(
+        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
+    ):
+        await _make_role(db, "searchablerole")
+        resp = await client.get(
+            "/api/v1/admin/roles",
+            headers=_auth(admin_full_token),
+            params={"search": "searchablerole"},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["total"] >= 1
+        assert any(r["name"] == "searchablerole" for r in data["roles"])
+
+    async def test_search_partial_match_returns_results(
+        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
+    ):
+        await _make_role(db, "partialrole")
+        resp = await client.get(
+            "/api/v1/admin/roles",
+            headers=_auth(admin_full_token),
+            params={"search": "partial"},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["total"] >= 1
+
+    async def test_search_no_match_returns_empty(self, client: AsyncClient, admin_full_token: str):
+        resp = await client.get(
+            "/api/v1/admin/roles",
+            headers=_auth(admin_full_token),
+            params={"search": "zzznomatchzzz"},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        data = resp.json()
+        assert data["total"] == 0
+        assert data["roles"] == []
+
+    async def test_search_echoed_in_response(self, client: AsyncClient, admin_full_token: str):
+        resp = await client.get(
+            "/api/v1/admin/roles",
+            headers=_auth(admin_full_token),
+            params={"search": "admin"},
+        )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["search"] == "admin"
+
+    async def test_search_none_when_omitted(self, client: AsyncClient, admin_full_token: str):
+        resp = await client.get("/api/v1/admin/roles", headers=_auth(admin_full_token))
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["search"] is None
+
+    async def test_search_exceeds_max_length_returns_422(self, client: AsyncClient, admin_full_token: str):
+        resp = await client.get(
+            "/api/v1/admin/roles",
+            headers=_auth(admin_full_token),
+            params={"search": "x" * 101},
+        )
+        assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
 
 # ── Create Role ────────────────────────────────────────────────────────────
 
+
 class TestCreateRole:
-    async def test_create_role_returns_201(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_create_role_returns_201(self, client: AsyncClient, admin_full_token: str):
         resp = await client.post(
             "/api/v1/admin/roles",
             headers=_auth(admin_full_token),
@@ -68,9 +124,7 @@ class TestCreateRole:
         assert data["success"] is True
         assert data["role"]["name"] == "editor"
 
-    async def test_duplicate_role_returns_409(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_duplicate_role_returns_409(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         await _make_role(db, "duplicaterole")
         resp = await client.post(
             "/api/v1/admin/roles",
@@ -79,9 +133,7 @@ class TestCreateRole:
         )
         assert resp.status_code == status.HTTP_409_CONFLICT
 
-    async def test_without_roles_create_permission_returns_403(
-        self, client: AsyncClient, user_token: str
-    ):
+    async def test_without_roles_create_permission_returns_403(self, client: AsyncClient, user_token: str):
         resp = await client.post(
             "/api/v1/admin/roles",
             headers=_auth(user_token),
@@ -89,9 +141,7 @@ class TestCreateRole:
         )
         assert resp.status_code == status.HTTP_403_FORBIDDEN
 
-    async def test_name_too_short_returns_422(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_name_too_short_returns_422(self, client: AsyncClient, admin_full_token: str):
         resp = await client.post(
             "/api/v1/admin/roles",
             headers=_auth(admin_full_token),
@@ -102,10 +152,9 @@ class TestCreateRole:
 
 # ── Update Role ────────────────────────────────────────────────────────────
 
+
 class TestUpdateRole:
-    async def test_update_role_returns_200(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_update_role_returns_200(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         role = await _make_role(db, "oldrole")
         resp = await client.put(
             f"/api/v1/admin/roles/{role.id}",
@@ -115,9 +164,7 @@ class TestUpdateRole:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True
 
-    async def test_update_nonexistent_role_returns_404(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_update_nonexistent_role_returns_404(self, client: AsyncClient, admin_full_token: str):
         resp = await client.put(
             "/api/v1/admin/roles/99999",
             headers=_auth(admin_full_token),
@@ -136,9 +183,7 @@ class TestUpdateRole:
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, db: AsyncSession, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, db: AsyncSession, user_token: str):
         role = await _make_role(db, "somerole")
         resp = await client.put(
             f"/api/v1/admin/roles/{role.id}",
@@ -150,10 +195,9 @@ class TestUpdateRole:
 
 # ── Delete Role ────────────────────────────────────────────────────────────
 
+
 class TestDeleteRole:
-    async def test_delete_custom_role_returns_200(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_delete_custom_role_returns_200(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         role = await _make_role(db, "customrole")
         resp = await client.delete(
             f"/api/v1/admin/roles/{role.id}",
@@ -162,9 +206,7 @@ class TestDeleteRole:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True
 
-    async def test_delete_nonexistent_role_returns_404(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_delete_nonexistent_role_returns_404(self, client: AsyncClient, admin_full_token: str):
         resp = await client.delete(
             "/api/v1/admin/roles/99999",
             headers=_auth(admin_full_token),
@@ -181,9 +223,7 @@ class TestDeleteRole:
         )
         assert resp.status_code == status.HTTP_400_BAD_REQUEST
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, db: AsyncSession, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, db: AsyncSession, user_token: str):
         role = await _make_role(db, "toberemovedXX")
         resp = await client.delete(
             f"/api/v1/admin/roles/{role.id}",
@@ -194,10 +234,9 @@ class TestDeleteRole:
 
 # ── List Permissions ───────────────────────────────────────────────────────
 
+
 class TestListPermissions:
-    async def test_with_permission_returns_200(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_with_permission_returns_200(self, client: AsyncClient, admin_full_token: str):
         resp = await client.get("/api/v1/admin/permissions", headers=_auth(admin_full_token))
         assert resp.status_code == status.HTTP_200_OK
         assert "permissions" in resp.json()
@@ -209,10 +248,9 @@ class TestListPermissions:
 
 # ── Create Permission ──────────────────────────────────────────────────────
 
+
 class TestCreatePermission:
-    async def test_create_valid_permission_returns_201(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_create_valid_permission_returns_201(self, client: AsyncClient, admin_full_token: str):
         resp = await client.post(
             "/api/v1/admin/permissions",
             headers=_auth(admin_full_token),
@@ -222,9 +260,7 @@ class TestCreatePermission:
         data = resp.json()
         assert data["permission"]["name"] == "users:create"
 
-    async def test_duplicate_permission_returns_409(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_duplicate_permission_returns_409(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         await _make_permission(db, "roles:read", "roles", "read")
         resp = await client.post(
             "/api/v1/admin/permissions",
@@ -233,9 +269,7 @@ class TestCreatePermission:
         )
         assert resp.status_code == status.HTTP_409_CONFLICT
 
-    async def test_disallowed_resource_returns_422(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_disallowed_resource_returns_422(self, client: AsyncClient, admin_full_token: str):
         resp = await client.post(
             "/api/v1/admin/permissions",
             headers=_auth(admin_full_token),
@@ -243,9 +277,7 @@ class TestCreatePermission:
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    async def test_disallowed_action_returns_422(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_disallowed_action_returns_422(self, client: AsyncClient, admin_full_token: str):
         resp = await client.post(
             "/api/v1/admin/permissions",
             headers=_auth(admin_full_token),
@@ -253,9 +285,7 @@ class TestCreatePermission:
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    async def test_name_resource_mismatch_returns_422(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_name_resource_mismatch_returns_422(self, client: AsyncClient, admin_full_token: str):
         """name field resource part must match the resource field."""
         resp = await client.post(
             "/api/v1/admin/permissions",
@@ -264,9 +294,7 @@ class TestCreatePermission:
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, user_token: str):
         resp = await client.post(
             "/api/v1/admin/permissions",
             headers=_auth(user_token),
@@ -277,10 +305,9 @@ class TestCreatePermission:
 
 # ── Delete Permission ──────────────────────────────────────────────────────
 
+
 class TestDeletePermission:
-    async def test_delete_permission_returns_200(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_delete_permission_returns_200(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         perm = await _make_permission(db, "profile:delete", "profile", "delete")
         resp = await client.delete(
             f"/api/v1/admin/permissions/{perm.id}",
@@ -289,18 +316,14 @@ class TestDeletePermission:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True
 
-    async def test_delete_nonexistent_permission_returns_404(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_delete_nonexistent_permission_returns_404(self, client: AsyncClient, admin_full_token: str):
         resp = await client.delete(
             "/api/v1/admin/permissions/99999",
             headers=_auth(admin_full_token),
         )
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, db: AsyncSession, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, db: AsyncSession, user_token: str):
         perm = await _make_permission(db, "users:update", "users", "update")
         resp = await client.delete(
             f"/api/v1/admin/permissions/{perm.id}",
@@ -311,10 +334,9 @@ class TestDeletePermission:
 
 # ── Assign Permission to Role ──────────────────────────────────────────────
 
+
 class TestAssignPermissionToRole:
-    async def test_assign_permission_returns_200(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_assign_permission_returns_200(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         role = await _make_role(db, "roleA")
         perm = await _make_permission(db, "profile:read", "profile", "read")
         resp = await client.post(
@@ -329,6 +351,7 @@ class TestAssignPermissionToRole:
         self, client: AsyncClient, db: AsyncSession, admin_full_token: str
     ):
         from tests.conftest import _assign_permission
+
         role = await _make_role(db, "roleB")
         perm = await _make_permission(db, "profile:update", "profile", "update")
         await _assign_permission(db, role.id, perm.id)
@@ -339,9 +362,7 @@ class TestAssignPermissionToRole:
         )
         assert resp.status_code == status.HTTP_409_CONFLICT
 
-    async def test_role_not_found_returns_404(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_role_not_found_returns_404(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         perm = await _make_permission(db, "roles:delete", "roles", "delete")
         resp = await client.post(
             "/api/v1/admin/roles/99999/permissions",
@@ -350,9 +371,7 @@ class TestAssignPermissionToRole:
         )
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    async def test_permission_not_found_returns_404(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_permission_not_found_returns_404(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         role = await _make_role(db, "roleC")
         resp = await client.post(
             f"/api/v1/admin/roles/{role.id}/permissions",
@@ -361,9 +380,7 @@ class TestAssignPermissionToRole:
         )
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, db: AsyncSession, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, db: AsyncSession, user_token: str):
         role = await _make_role(db, "roleD")
         perm = await _make_permission(db, "profile:create", "profile", "create")
         resp = await client.post(
@@ -376,11 +393,11 @@ class TestAssignPermissionToRole:
 
 # ── Revoke Permission from Role ────────────────────────────────────────────
 
+
 class TestRevokePermissionFromRole:
-    async def test_revoke_permission_returns_200(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_revoke_permission_returns_200(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         from tests.conftest import _assign_permission
+
         role = await _make_role(db, "roleE")
         perm = await _make_permission(db, "profile:create", "profile", "create")
         await _assign_permission(db, role.id, perm.id)
@@ -402,9 +419,7 @@ class TestRevokePermissionFromRole:
         )
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, db: AsyncSession, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, db: AsyncSession, user_token: str):
         role = await _make_role(db, "roleG")
         resp = await client.delete(
             f"/api/v1/admin/roles/{role.id}/permissions/1",
@@ -415,10 +430,9 @@ class TestRevokePermissionFromRole:
 
 # ── Get User Roles ─────────────────────────────────────────────────────────
 
+
 class TestGetUserRoles:
-    async def test_get_user_roles_returns_200(
-        self, client: AsyncClient, sample_user: User, admin_full_token: str
-    ):
+    async def test_get_user_roles_returns_200(self, client: AsyncClient, sample_user: User, admin_full_token: str):
         resp = await client.get(
             f"/api/v1/admin/users/{sample_user.id}/roles",
             headers=_auth(admin_full_token),
@@ -428,18 +442,14 @@ class TestGetUserRoles:
         assert "roles" in data
         assert any(r["name"] == RoleNames.USER for r in data["roles"])
 
-    async def test_nonexistent_user_returns_404(
-        self, client: AsyncClient, admin_full_token: str
-    ):
+    async def test_nonexistent_user_returns_404(self, client: AsyncClient, admin_full_token: str):
         resp = await client.get(
             "/api/v1/admin/users/99999/roles",
             headers=_auth(admin_full_token),
         )
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    async def test_without_permission_returns_403(
-        self, client: AsyncClient, sample_user: User, user_token: str
-    ):
+    async def test_without_permission_returns_403(self, client: AsyncClient, sample_user: User, user_token: str):
         resp = await client.get(
             f"/api/v1/admin/users/{sample_user.id}/roles",
             headers=_auth(user_token),
@@ -448,6 +458,7 @@ class TestGetUserRoles:
 
 
 # ── Assign Role to User ────────────────────────────────────────────────────
+
 
 class TestAssignRoleToUser:
     async def test_assign_role_returns_200(
@@ -473,9 +484,7 @@ class TestAssignRoleToUser:
         )
         assert resp.status_code == status.HTTP_409_CONFLICT
 
-    async def test_user_not_found_returns_404(
-        self, client: AsyncClient, db: AsyncSession, admin_full_token: str
-    ):
+    async def test_user_not_found_returns_404(self, client: AsyncClient, db: AsyncSession, admin_full_token: str):
         new_role = await _make_role(db, "roleXYZ")
         resp = await client.post(
             "/api/v1/admin/users/99999/roles",
@@ -484,9 +493,7 @@ class TestAssignRoleToUser:
         )
         assert resp.status_code == status.HTTP_404_NOT_FOUND
 
-    async def test_role_not_found_returns_404(
-        self, client: AsyncClient, sample_user: User, admin_full_token: str
-    ):
+    async def test_role_not_found_returns_404(self, client: AsyncClient, sample_user: User, admin_full_token: str):
         resp = await client.post(
             f"/api/v1/admin/users/{sample_user.id}/roles",
             headers=_auth(admin_full_token),
@@ -507,6 +514,7 @@ class TestAssignRoleToUser:
 
 
 # ── Revoke Role from User ──────────────────────────────────────────────────
+
 
 class TestRevokeRoleFromUser:
     async def test_revoke_role_returns_200(

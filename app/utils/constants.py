@@ -1,4 +1,7 @@
-"""Feature-level user-facing string constants — all response messages and domain values."""
+"""Feature-level user-facing string constants — all response messages and domain values.
+
+For system-level infrastructure constants (JWT, OTP timing, HTTP helpers) see app/core/constants.py.
+"""
 
 # ── Project metadata ───────────────────────────────────────────────────────
 PROJECT_NAME = "Auth Module"
@@ -6,6 +9,7 @@ VERSION = "1.0.0"
 APP_NAME = "AuthModule"
 SUPPORT_EMAIL = "support@yourdomain.com"
 BRAND_COLOR = "#1a1a2e"
+
 
 # ── Default Roles ──────────────────────────────────────────────────────────
 class RoleNames:
@@ -44,10 +48,20 @@ class Permissions:
     PROFILE_UPDATE = "profile:update"
 
     ALL = [
-        USERS_READ, USERS_CREATE, USERS_UPDATE, USERS_DELETE,
-        ROLES_READ, ROLES_CREATE, ROLES_UPDATE, ROLES_DELETE,
-        PERMISSIONS_READ, PERMISSIONS_CREATE, PERMISSIONS_UPDATE, PERMISSIONS_DELETE,
-        PROFILE_READ, PROFILE_UPDATE,
+        USERS_READ,
+        USERS_CREATE,
+        USERS_UPDATE,
+        USERS_DELETE,
+        ROLES_READ,
+        ROLES_CREATE,
+        ROLES_UPDATE,
+        ROLES_DELETE,
+        PERMISSIONS_READ,
+        PERMISSIONS_CREATE,
+        PERMISSIONS_UPDATE,
+        PERMISSIONS_DELETE,
+        PROFILE_READ,
+        PROFILE_UPDATE,
     ]
 
 
@@ -55,18 +69,24 @@ class Permissions:
 DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
     RoleNames.SUPER_ADMIN: Permissions.ALL,
     RoleNames.ADMIN: [
-        Permissions.USERS_READ, Permissions.USERS_CREATE, Permissions.USERS_UPDATE, Permissions.USERS_DELETE,
+        Permissions.USERS_READ,
+        Permissions.USERS_CREATE,
+        Permissions.USERS_UPDATE,
+        Permissions.USERS_DELETE,
         Permissions.ROLES_READ,
         Permissions.PERMISSIONS_READ,
-        Permissions.PROFILE_READ, Permissions.PROFILE_UPDATE,
+        Permissions.PROFILE_READ,
+        Permissions.PROFILE_UPDATE,
     ],
     RoleNames.MANAGER: [
         Permissions.USERS_READ,
         Permissions.ROLES_READ,
-        Permissions.PROFILE_READ, Permissions.PROFILE_UPDATE,
+        Permissions.PROFILE_READ,
+        Permissions.PROFILE_UPDATE,
     ],
     RoleNames.USER: [
-        Permissions.PROFILE_READ, Permissions.PROFILE_UPDATE,
+        Permissions.PROFILE_READ,
+        Permissions.PROFILE_UPDATE,
     ],
 }
 
@@ -118,6 +138,10 @@ class ErrorCodes:
     # Admin
     INVALID_ADMIN_SECRET = "invalid_admin_secret"
 
+    # Profile
+    INCORRECT_CURRENT_PASSWORD = "incorrect_current_password"
+    SAME_PASSWORD = "same_password"
+
     # Permissions sync
     PERMISSIONS_CHANGED = "permissions_changed"
 
@@ -155,6 +179,8 @@ class ResponseMessages:
     USER_NOT_FOUND = "User not found."
     USER_DELETED = "User deleted successfully."
     CANNOT_DELETE_SELF = "You cannot delete your own account."
+    INCORRECT_CURRENT_PASSWORD = "Current password is incorrect."
+    SAME_PASSWORD = "New password cannot be the same as your current password."
 
     # Errors — Roles & Permissions
     ROLE_NOT_FOUND = "Role not found."

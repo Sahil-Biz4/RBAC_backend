@@ -1,27 +1,11 @@
 """Auth feature Pydantic request/response schemas."""
 
-import re
+from typing import Self
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
-from typing_extensions import Self
 
 from app.core.constants import OtpPurpose
-
-
-_PASSWORD_PATTERN = re.compile(
-    r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#^()\-_=+])[A-Za-z\d@$!%*?&#^()\-_=+]{8,64}$"
-)
-_PASSWORD_STRENGTH_MSG = (
-    "Password must be 8–64 characters and include at least one uppercase letter, "
-    "one lowercase letter, one digit, and one special character (@$!%*?&#^()-_=+)."
-)
-
-
-def _validate_password_strength(v: str) -> str:
-    """Shared password strength validator — reused across all registration schemas."""
-    if not _PASSWORD_PATTERN.match(v):
-        raise ValueError(_PASSWORD_STRENGTH_MSG)
-    return v
+from app.utils.validators import validate_password_strength as _validate_password_strength
 
 
 class RegisterIn(BaseModel):

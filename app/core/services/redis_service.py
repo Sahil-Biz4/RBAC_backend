@@ -45,9 +45,27 @@ class RedisService:
         """Remove the refresh token on logout."""
         await self.client.delete(f"refresh_token:{user_id}")
 
+    async def store_access_jti(self, user_id: int, jti: str, ttl_seconds: int) -> None:
+        """Store the active access token JTI keyed by user_id with TTL."""
+        await self.client.setex(f"access_jti:{user_id}", ttl_seconds, jti)
+
+    async def get_access_jti(self, user_id: int) -> str | None:
+        """Retrieve the stored access JTI for a user."""
+        return await self.client.get(f"access_jti:{user_id}")
+
+    async def verify_access_jti(self, user_id: int, jti: str) -> bool:
+        """Return True if the stored JTI matches the provided one."""
+        stored = await self.get_access_jti(user_id)
+        return stored is not None and stored == jti
+
+    async def delete_access_jti(self, user_id: int) -> None:
+        """Remove the access JTI (e.g. on logout)."""
+        await self.client.delete(f"access_jti:{user_id}")
+
     async def delete_all_user_sessions(self, user_id: int) -> None:
         """Revoke all sessions for a user (e.g. after password change)."""
         await self.delete_refresh_token(user_id)
+        await self.delete_access_jti(user_id)
 
 
 redis_service = RedisService()

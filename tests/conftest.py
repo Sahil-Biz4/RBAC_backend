@@ -2,8 +2,10 @@
 
 import os
 
+
 os.environ.setdefault("DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-for-tests-only")
+os.environ.setdefault("ADMIN_SECRET_KEY", "test-admin-secret-key")
 os.environ.setdefault("RATELIMIT_ENABLED", "false")
 
 from unittest.mock import AsyncMock, patch
@@ -68,34 +70,80 @@ async def client(db):
 
 # ── Redis mock fixture ─────────────────────────────────────────────────────
 
+
+class MockRedisStore:
+    """In-memory store replacing Redis for tests.
+
+    Dict-like operations ([], get, pop) map to the refresh token store for
+    backward compatibility with fixtures that do ``mock_redis[user_id] = token``.
+    JTI access uses ``mock_redis.jti[user_id]``.
+    """
+
+    def __init__(self) -> None:
+        self.refresh: dict[int, str] = {}
+        self.jti: dict[int, str] = {}
+
+    def __setitem__(self, key: int, value: str) -> None:
+        self.refresh[key] = value
+
+    def __getitem__(self, key: int) -> str:
+        return self.refresh[key]
+
+    def get(self, key: int, default: str | None = None) -> str | None:
+        return self.refresh.get(key, default)
+
+    def pop(self, key: int, *args) -> str | None:
+        return self.refresh.pop(key, *args)
+
+    def __contains__(self, key: int) -> bool:
+        return key in self.refresh
+
+
 @pytest.fixture
 def mock_redis():
-    """Replace redis_service with an in-memory dict so tests need no real Redis."""
-    _store: dict[int, str] = {}
+    """Replace redis_service with an in-memory MockRedisStore so tests need no real Redis."""
+    store = MockRedisStore()
 
-    async def _store_fn(user_id: int, token: str, ttl: int) -> None:
-        _store[user_id] = token
+    async def _store_refresh(user_id: int, token: str, ttl: int) -> None:
+        store.refresh[user_id] = token
 
-    async def _verify_fn(user_id: int, token: str) -> bool:
-        return _store.get(user_id) == token
+    async def _verify_refresh(user_id: int, token: str) -> bool:
+        return store.refresh.get(user_id) == token
 
-    async def _get_fn(user_id: int) -> str | None:
-        return _store.get(user_id)
+    async def _get_refresh(user_id: int) -> str | None:
+        return store.refresh.get(user_id)
 
-    async def _delete_fn(user_id: int) -> None:
-        _store.pop(user_id, None)
+    async def _delete_refresh(user_id: int) -> None:
+        store.refresh.pop(user_id, None)
+
+    async def _store_jti(user_id: int, jti: str, ttl: int) -> None:
+        store.jti[user_id] = jti
+
+    async def _verify_jti(user_id: int, jti: str) -> bool:
+        return store.jti.get(user_id) == jti
+
+    async def _delete_jti(user_id: int) -> None:
+        store.jti.pop(user_id, None)
+
+    async def _delete_all(user_id: int) -> None:
+        store.refresh.pop(user_id, None)
+        store.jti.pop(user_id, None)
 
     with (
-        patch.object(_redis_service, "store_refresh_token", new=AsyncMock(side_effect=_store_fn)),
-        patch.object(_redis_service, "verify_refresh_token", new=AsyncMock(side_effect=_verify_fn)),
-        patch.object(_redis_service, "get_refresh_token", new=AsyncMock(side_effect=_get_fn)),
-        patch.object(_redis_service, "delete_refresh_token", new=AsyncMock(side_effect=_delete_fn)),
-        patch.object(_redis_service, "delete_all_user_sessions", new=AsyncMock(side_effect=_delete_fn)),
+        patch.object(_redis_service, "store_refresh_token", new=AsyncMock(side_effect=_store_refresh)),
+        patch.object(_redis_service, "verify_refresh_token", new=AsyncMock(side_effect=_verify_refresh)),
+        patch.object(_redis_service, "get_refresh_token", new=AsyncMock(side_effect=_get_refresh)),
+        patch.object(_redis_service, "delete_refresh_token", new=AsyncMock(side_effect=_delete_refresh)),
+        patch.object(_redis_service, "store_access_jti", new=AsyncMock(side_effect=_store_jti)),
+        patch.object(_redis_service, "verify_access_jti", new=AsyncMock(side_effect=_verify_jti)),
+        patch.object(_redis_service, "delete_access_jti", new=AsyncMock(side_effect=_delete_jti)),
+        patch.object(_redis_service, "delete_all_user_sessions", new=AsyncMock(side_effect=_delete_all)),
     ):
-        yield _store
+        yield store
 
 
 # ── Role & Permission helpers ──────────────────────────────────────────────
+
 
 async def _create_role(db: AsyncSession, name: str) -> Role:
     role = Role(name=name, description=f"{name} role")
@@ -125,6 +173,7 @@ async def _assign_role(db: AsyncSession, user_id: int, role_id: int) -> None:
 
 
 # ── User fixtures ──────────────────────────────────────────────────────────
+
 
 @pytest_asyncio.fixture
 async def sample_user_role(db: AsyncSession) -> Role:
@@ -214,47 +263,51 @@ async def unverified_user(db: AsyncSession, sample_user_role: Role) -> User:
 
 # ── Token fixtures ─────────────────────────────────────────────────────────
 
+
 @pytest_asyncio.fixture
-async def user_token(sample_user: User) -> str:
-    """Valid access token for sample_user with 'user' role."""
-    token, _ = create_access_token(
+async def user_token(sample_user: User, mock_redis: MockRedisStore) -> str:
+    """Valid access token for sample_user with 'user' role. JTI stored in mock Redis."""
+    token, jti = create_access_token(
         subject=sample_user.id,
         email=sample_user.email,
         roles=[RoleNames.USER],
         permissions=[Permissions.PROFILE_READ, Permissions.PROFILE_UPDATE],
         perms_version=sample_user.perms_version,
     )
+    mock_redis.jti[sample_user.id] = jti
     return token
 
 
 @pytest_asyncio.fixture
-async def admin_token(sample_admin_user: User) -> str:
-    """Valid access token for sample_admin_user with 'admin' role and user-management permissions."""
-    token, _ = create_access_token(
+async def admin_token(sample_admin_user: User, mock_redis: MockRedisStore) -> str:
+    """Valid access token for sample_admin_user with 'admin' role. JTI stored in mock Redis."""
+    token, jti = create_access_token(
         subject=sample_admin_user.id,
         email=sample_admin_user.email,
         roles=[RoleNames.ADMIN],
         permissions=[Permissions.USERS_READ, Permissions.USERS_UPDATE, Permissions.USERS_DELETE],
         perms_version=sample_admin_user.perms_version,
     )
+    mock_redis.jti[sample_admin_user.id] = jti
     return token
 
 
 @pytest_asyncio.fixture
-async def admin_full_token(sample_admin_user: User) -> str:
-    """Access token for sample_admin_user with ALL admin permissions."""
-    token, _ = create_access_token(
+async def admin_full_token(sample_admin_user: User, mock_redis: MockRedisStore) -> str:
+    """Access token for sample_admin_user with ALL admin permissions. JTI stored in mock Redis."""
+    token, jti = create_access_token(
         subject=sample_admin_user.id,
         email=sample_admin_user.email,
         roles=[RoleNames.ADMIN],
         permissions=Permissions.ALL,
         perms_version=sample_admin_user.perms_version,
     )
+    mock_redis.jti[sample_admin_user.id] = jti
     return token
 
 
 @pytest_asyncio.fixture
-async def user_refresh_token(sample_user: User, mock_redis: dict) -> str:
+async def user_refresh_token(sample_user: User, mock_redis: MockRedisStore) -> str:
     """Valid refresh token for sample_user, stored in mock Redis."""
     token, _ = create_refresh_token(subject=sample_user.id, email=sample_user.email)
     mock_redis[sample_user.id] = token

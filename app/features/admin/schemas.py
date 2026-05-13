@@ -1,6 +1,6 @@
 """Admin feature Pydantic schemas."""
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RoleIn(BaseModel):
@@ -57,40 +57,28 @@ class PermissionIn(BaseModel):
     def validate_action_allowed(cls, v: str) -> str:
         """Only allow standard CRUD actions."""
         if v not in ALLOWED_ACTIONS:
-            raise ValueError(
-                f"Action '{v}' is not allowed. "
-                f"Allowed actions: {', '.join(sorted(ALLOWED_ACTIONS))}."
-            )
+            raise ValueError(f"Action '{v}' is not allowed. " f"Allowed actions: {', '.join(sorted(ALLOWED_ACTIONS))}.")
         return v
 
-    @field_validator("name")
-    @classmethod
-    def validate_name_matches_parts(cls, v: str, info) -> str:
+    @model_validator(mode="after")
+    def validate_name_matches_parts(self) -> "PermissionIn":
         """Ensure name matches resource:action format."""
-        if ':' not in v:
+        if ":" not in self.name:
             raise ValueError("Permission name must be in format 'resource:action'")
-        
-        parts = v.split(':')
+
+        parts = self.name.split(":")
         if len(parts) != 2:
             raise ValueError("Permission name must have exactly one colon separator")
-        
+
         name_resource, name_action = parts
-        
-        # Check if resource and action from name match the fields
-        resource = info.data.get('resource')
-        action = info.data.get('action')
-        
-        if resource and name_resource != resource:
-            raise ValueError(
-                f"Resource in name '{name_resource}' doesn't match resource field '{resource}'"
-            )
-        
-        if action and name_action != action:
-            raise ValueError(
-                f"Action in name '{name_action}' doesn't match action field '{action}'"
-            )
-        
-        return v
+
+        if self.resource and name_resource != self.resource:
+            raise ValueError(f"Resource in name '{name_resource}' doesn't match resource field '{self.resource}'")
+
+        if self.action and name_action != self.action:
+            raise ValueError(f"Action in name '{name_action}' doesn't match action field '{self.action}'")
+
+        return self
 
 
 class PermissionOut(BaseModel):

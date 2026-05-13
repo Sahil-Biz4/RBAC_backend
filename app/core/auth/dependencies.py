@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.auth.jwt_handler import decode_password_reset_token
-from app.core.config.settings import settings
 from app.core.database import get_db
 from app.models.user import User
 from app.utils.constants import ErrorCodes, ResponseMessages

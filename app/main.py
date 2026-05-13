@@ -13,12 +13,8 @@ from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.models  # ensure all ORM models are registered in metadata
 from app.core.config.settings import settings
-from app.core.logging_config import configure_logging
-from app.core.services.redis_service import redis_service
-
-configure_logging(environment=settings.environment)
-
 from app.core.constants import (
     APITags,
     ErrorMessages,
@@ -29,9 +25,11 @@ from app.core.constants import (
 )
 from app.core.database import get_db
 from app.core.limiter import limiter
+from app.core.logging_config import configure_logging
 from app.core.middleware.auth import AuthMiddleware
 from app.core.middleware.request_logging import RequestLoggingMiddleware
 from app.core.middleware.security_headers import SecurityHeadersMiddleware
+from app.core.services.redis_service import redis_service
 from app.features.admin.routes import router as admin_router
 from app.features.auth.routes import router as auth_router
 from app.features.auth.routes_definition import routes as auth_routes
@@ -39,12 +37,12 @@ from app.features.users.routes import router as users_router
 from app.utils.constants import PROJECT_NAME, VERSION
 
 
+configure_logging(environment=settings.environment)
+
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 logger = logging.getLogger(__name__)
-
-import app.models  # noqa: E402, F401 — ensure all ORM models are registered in metadata
 
 
 @asynccontextmanager
@@ -95,7 +93,14 @@ def create_app() -> FastAPI:
     app.add_middleware(
         AuthMiddleware,
         excluded_prefixes=[
-            auth_routes.BASE,
+            auth_routes.BASE + auth_routes.REGISTER,
+            auth_routes.BASE + auth_routes.REGISTER_ADMIN,
+            auth_routes.BASE + auth_routes.LOGIN,
+            auth_routes.BASE + auth_routes.REFRESH,
+            auth_routes.BASE + auth_routes.VERIFY_OTP,
+            auth_routes.BASE + auth_routes.RESEND_OTP,
+            auth_routes.BASE + auth_routes.FORGOT_PASSWORD,
+            auth_routes.BASE + auth_routes.CHANGE_PASSWORD,
             RoutePaths.DOCS,
             RoutePaths.REDOC,
             RoutePaths.OPENAPI_JSON,

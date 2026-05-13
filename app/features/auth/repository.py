@@ -13,57 +13,47 @@ from app.models.user import User
 
 
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
-    """Fetch a user by email address, eagerly loading their roles."""
+    """Fetch an active, non-deleted user by email address, eagerly loading their roles."""
     result = await db.execute(
         select(User)
-        .where(User.email == email)
+        .where(User.email == email, User.deleted_at.is_(None))
         .options(selectinload(User.user_roles).selectinload(UserRole.role).selectinload(Role.role_permissions))
     )
     return result.scalars().first()
 
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
-    """Fetch a user by integer primary key, eagerly loading their roles."""
+    """Fetch an active, non-deleted user by integer primary key, eagerly loading their roles."""
     result = await db.execute(
         select(User)
-        .where(User.id == user_id)
+        .where(User.id == user_id, User.deleted_at.is_(None))
         .options(selectinload(User.user_roles).selectinload(UserRole.role).selectinload(Role.role_permissions))
     )
     return result.scalars().first()
 
 
-async def create_user(
-    db: AsyncSession, name: str, email: str, password_hash: str, commit: bool = True
-) -> User:
-    """Insert a new user record and return it."""
+async def create_user(db: AsyncSession, name: str, email: str, password_hash: str) -> User:
+    """Insert a new user record, flush to obtain the primary key, and return it."""
     user = User(name=name, email=email, password_hash=password_hash)
     db.add(user)
-    if commit:
-        await db.commit()
-    else:
-        await db.flush()
+    await db.flush()
     await db.refresh(user)
     return user
 
 
-async def assign_role_to_user(
-    db: AsyncSession, user_id: int, role_name: str, commit: bool = True
-) -> None:
-    """Assign a named role to a user. No-ops if already assigned."""
+async def assign_role_to_user(db: AsyncSession, user_id: int, role_name: str) -> None:
+    """Assign a named role to a user. No-ops if already assigned. Flushes but does not commit."""
     role_result = await db.execute(select(Role).where(Role.name == role_name))
     role = role_result.scalars().first()
     if not role:
         return
 
-    existing = await db.execute(
-        select(UserRole).where(and_(UserRole.user_id == user_id, UserRole.role_id == role.id))
-    )
+    existing = await db.execute(select(UserRole).where(and_(UserRole.user_id == user_id, UserRole.role_id == role.id)))
     if existing.scalars().first():
         return
 
     db.add(UserRole(user_id=user_id, role_id=role.id))
-    if commit:
-        await db.commit()
+    await db.flush()
 
 
 async def get_user_roles_and_permissions(db: AsyncSession, user_id: int) -> tuple[list[str], list[str]]:
@@ -74,7 +64,9 @@ async def get_user_roles_and_permissions(db: AsyncSession, user_id: int) -> tupl
     result = await db.execute(
         select(UserRole)
         .where(UserRole.user_id == user_id)
-        .options(selectinload(UserRole.role).selectinload(Role.role_permissions).selectinload(RolePermission.permission))
+        .options(
+            selectinload(UserRole.role).selectinload(Role.role_permissions).selectinload(RolePermission.permission)
+        )
     )
     user_roles = result.scalars().all()
 
@@ -95,16 +87,12 @@ async def create_email_otp(
     otp_hash: str,
     purpose: str,
     expire_minutes: int,
-    commit: bool = True,
 ) -> EmailOtp:
-    """Insert a new OTP record and return it."""
+    """Insert a new OTP record, flush to obtain the primary key, and return it."""
     expires_at = datetime.now(UTC) + timedelta(minutes=expire_minutes)
     otp = EmailOtp(user_id=user_id, otp_hash=otp_hash, purpose=purpose, expires_at=expires_at)
     db.add(otp)
-    if commit:
-        await db.commit()
-    else:
-        await db.flush()
+    await db.flush()
     await db.refresh(otp)
     return otp
 
@@ -159,13 +147,12 @@ async def invalidate_user_otps(db: AsyncSession, user_id: int, purpose: str) -> 
 
 
 async def count_recent_resends(db: AsyncSession, user_id: int, purpose: str, window_minutes: int) -> int:
-    """Count how many OTPs have been sent in the given time window.
-
-    Uses DB-level COUNT aggregation — no rows fetched into Python memory.
-    """
+    """Count how many OTPs have been sent in the given time window."""
     since = datetime.now(UTC) - timedelta(minutes=window_minutes)
     result = await db.execute(
-        select(func.count()).select_from(EmailOtp).where(
+        select(func.count())
+        .select_from(EmailOtp)
+        .where(
             and_(
                 EmailOtp.user_id == user_id,
                 EmailOtp.purpose == purpose,

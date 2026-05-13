@@ -69,7 +69,6 @@ class Settings(BaseSettings):
         default=constants.OTP_MAX_VERIFY_ATTEMPTS,
         alias="OTP_MAX_VERIFY_ATTEMPTS",
     )
-    otp_lockout_minutes: int = Field(default=constants.OTP_LOCKOUT_MINUTES, alias="OTP_LOCKOUT_MINUTES")
     otp_max_resends: int = Field(default=constants.OTP_MAX_RESENDS, alias="OTP_MAX_RESENDS")
     otp_resend_window_minutes: int = Field(
         default=constants.OTP_RESEND_WINDOW_MINUTES,
@@ -85,12 +84,8 @@ class Settings(BaseSettings):
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     cors_origins_raw: str = Field(default="", alias="CORS_ORIGINS")
-    cors_allowed_methods_raw: str = Field(
-        default="GET,POST,PUT,DELETE,PATCH", alias="CORS_ALLOWED_METHODS"
-    )
-    cors_allowed_headers_raw: str = Field(
-        default="Content-Type,Authorization", alias="CORS_ALLOWED_HEADERS"
-    )
+    cors_allowed_methods_raw: str = Field(default="GET,POST,PUT,DELETE,PATCH", alias="CORS_ALLOWED_METHODS")
+    cors_allowed_headers_raw: str = Field(default="Content-Type,Authorization", alias="CORS_ALLOWED_HEADERS")
 
     # ── Admin ─────────────────────────────────────────────────────────────────
     admin_secret_key: str = Field(default="", alias="ADMIN_SECRET_KEY")

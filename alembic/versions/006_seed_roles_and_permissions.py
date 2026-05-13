@@ -54,50 +54,46 @@ ROLES = [
 # Using CRUD actions: read, create, update, delete
 PERMISSIONS = [
     # Users permissions
-    {"name": "users:read",   "resource": "users", "action": "read",   "description": None},
+    {"name": "users:read", "resource": "users", "action": "read", "description": None},
     {"name": "users:create", "resource": "users", "action": "create", "description": None},
     {"name": "users:update", "resource": "users", "action": "update", "description": None},
     {"name": "users:delete", "resource": "users", "action": "delete", "description": None},
-    
     # Roles permissions
-    {"name": "roles:read",   "resource": "roles", "action": "read",   "description": None},
+    {"name": "roles:read", "resource": "roles", "action": "read", "description": None},
     {"name": "roles:create", "resource": "roles", "action": "create", "description": None},
     {"name": "roles:update", "resource": "roles", "action": "update", "description": None},
     {"name": "roles:delete", "resource": "roles", "action": "delete", "description": None},
-    
     # Permissions permissions
-    {"name": "permissions:read",   "resource": "permissions", "action": "read",   "description": None},
+    {"name": "permissions:read", "resource": "permissions", "action": "read", "description": None},
     {"name": "permissions:create", "resource": "permissions", "action": "create", "description": None},
     {"name": "permissions:update", "resource": "permissions", "action": "update", "description": None},
     {"name": "permissions:delete", "resource": "permissions", "action": "delete", "description": None},
-    
     # Profile permissions
-    {"name": "profile:read",   "resource": "profile", "action": "read",   "description": None},
+    {"name": "profile:read", "resource": "profile", "action": "read", "description": None},
     {"name": "profile:update", "resource": "profile", "action": "update", "description": None},
 ]
 
 
 def upgrade() -> None:
     conn = op.get_bind()
-    
+
     # Insert roles (IDs will be auto-generated)
     op.bulk_insert(roles_table, ROLES)
-    
+
     # Insert permissions (IDs will be auto-generated)
     op.bulk_insert(permissions_table, PERMISSIONS)
-    
+
     # Get actual IDs that were generated
     role_result = conn.execute(sa.text("SELECT id, name FROM roles ORDER BY id"))
     role_map = {row[1]: row[0] for row in role_result}
-    
+
     perm_result = conn.execute(sa.text("SELECT id, name FROM permissions ORDER BY id"))
     perm_map = {row[1]: row[0] for row in perm_result}
-    
+
     # Create role-permission associations using actual IDs
     rp_rows = [
         # super_admin — all permissions
         *[{"role_id": role_map["super_admin"], "permission_id": perm_map[p["name"]]} for p in PERMISSIONS],
-        
         # admin — users:*, roles:read, permissions:read, profile:*
         {"role_id": role_map["admin"], "permission_id": perm_map["users:read"]},
         {"role_id": role_map["admin"], "permission_id": perm_map["users:create"]},
@@ -107,20 +103,18 @@ def upgrade() -> None:
         {"role_id": role_map["admin"], "permission_id": perm_map["permissions:read"]},
         {"role_id": role_map["admin"], "permission_id": perm_map["profile:read"]},
         {"role_id": role_map["admin"], "permission_id": perm_map["profile:update"]},
-        
         # manager — users:read, roles:read, profile:*
         {"role_id": role_map["manager"], "permission_id": perm_map["users:read"]},
         {"role_id": role_map["manager"], "permission_id": perm_map["roles:read"]},
         {"role_id": role_map["manager"], "permission_id": perm_map["profile:read"]},
         {"role_id": role_map["manager"], "permission_id": perm_map["profile:update"]},
-        
         # user — profile:*
         {"role_id": role_map["user"], "permission_id": perm_map["profile:read"]},
         {"role_id": role_map["user"], "permission_id": perm_map["profile:update"]},
     ]
-    
+
     op.bulk_insert(role_permissions_table, rp_rows)
-    
+
     # CRITICAL: Reset sequences to prevent primary key conflicts
     conn.execute(sa.text("SELECT setval('roles_id_seq', (SELECT MAX(id) FROM roles))"))
     conn.execute(sa.text("SELECT setval('permissions_id_seq', (SELECT MAX(id) FROM permissions))"))

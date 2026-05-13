@@ -47,8 +47,5 @@ def mask_email(email: str) -> str:
     Example: john.doe@example.com → jo*****e@example.com
     """
     local, _, domain = email.partition("@")
-    if len(local) <= 2:
-        masked_local = local[0] + "*"
-    else:
-        masked_local = local[0] + "*" * (len(local) - 2) + local[-1]
+    masked_local = local[0] + "*" if len(local) <= 2 else local[0] + "*" * (len(local) - 2) + local[-1]
     return f"{masked_local}@{domain}"

@@ -8,7 +8,6 @@ existing code that does ``from app.core.database import Base`` continues to work
 import logging
 from collections.abc import AsyncGenerator
 
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.core.config.settings import settings
@@ -47,8 +46,7 @@ def _normalize_database_url(url: str) -> str:
 _db_url = _normalize_database_url(settings.database_url)
 if not _db_url:
     raise RuntimeError(
-        "DATABASE_URL is not configured. "
-        "Set DATABASE_URL in your .env file or environment variables."
+        "DATABASE_URL is not configured. " "Set DATABASE_URL in your .env file or environment variables."
     )
 
 engine = create_async_engine(_db_url, pool_pre_ping=True)

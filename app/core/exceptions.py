@@ -51,14 +51,11 @@ class AppError(Exception):
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
+
 class AuthError(AppError):
-    """Authentication failure — invalid credentials, bad OTP, etc.
+    """Authentication failure — invalid credentials, bad OTP, etc."""
 
-    Uses 400 so the frontend interceptor does not treat it as a session-expiry
-    (which would trigger token refresh and redirect to login).
-    """
-
-    status_code = status.HTTP_400_BAD_REQUEST
+    status_code = status.HTTP_401_UNAUTHORIZED
 
 
 class ForbiddenError(AppError):
@@ -74,6 +71,7 @@ class TokenError(AppError):
 
 
 # ── Resource ─────────────────────────────────────────────────────────────────
+
 
 class NotFoundError(AppError):
     """Requested resource does not exist."""
@@ -95,6 +93,7 @@ class BadRequestError(AppError):
 
 # ── Input / Validation ───────────────────────────────────────────────────────
 
+
 class ValidationError(AppError):
     """Request payload failed domain-level validation."""
 
@@ -108,6 +107,7 @@ class RateLimitError(AppError):
 
 
 # ── Session ──────────────────────────────────────────────────────────────────
+
 
 class SessionError(AppError):
     """Session-related failure — revoked, expired, or not found."""

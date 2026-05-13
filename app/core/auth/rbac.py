@@ -7,27 +7,10 @@ permission must be explicitly assigned to a role.
 
 from collections.abc import Callable
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, status
 
+from app.core.auth.dependencies import get_current_user_payload
 from app.utils.constants import ErrorCodes, ResponseMessages
-
-
-def _get_token_payload(request: Request) -> dict:
-    """Extract the pre-validated JWT payload from request state.
-
-    The AuthMiddleware populates request.state.token_payload before any route
-    handler is called, so this function never re-decodes the token.
-
-    Raises:
-        HTTPException 401: If the payload is absent (unauthenticated request).
-    """
-    payload = getattr(request.state, "token_payload", None)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
-        )
-    return payload
 
 
 def require_role(role: str) -> Callable:
@@ -43,7 +26,7 @@ def require_role(role: str) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
         user_roles: list[str] = payload.get("roles", [])
         if role not in user_roles:
             raise HTTPException(
@@ -71,7 +54,7 @@ def require_any_role(roles: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
         user_roles: list[str] = payload.get("roles", [])
         if not any(r in user_roles for r in roles):
             raise HTTPException(
@@ -99,7 +82,7 @@ def require_permission(permission: str) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         if permission not in user_permissions:
             raise HTTPException(
@@ -124,7 +107,7 @@ def require_any_permission(permissions: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         if not any(p in user_permissions for p in permissions):
             raise HTTPException(
@@ -149,7 +132,7 @@ def require_all_permissions(permissions: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: dict = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         missing = [p for p in permissions if p not in user_permissions]
         if missing:

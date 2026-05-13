@@ -2,7 +2,6 @@
 
 from unittest.mock import AsyncMock, patch
 
-import pytest
 from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,15 +9,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.jwt_handler import create_password_reset_token
 from app.core.config.settings import settings
 from app.models.user import User
-from app.utils.constants import ResponseMessages
 from app.utils.helpers import hash_otp
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+
 async def _seed_otp(db: AsyncSession, user: User, otp: str, purpose: str) -> None:
     """Insert a valid (unused, unexpired) OTP for a user into the test DB."""
     from app.features.auth import repository as repo
+
     await repo.create_email_otp(
         db=db,
         user_id=user.id,
@@ -29,6 +29,7 @@ async def _seed_otp(db: AsyncSession, user: User, otp: str, purpose: str) -> Non
 
 
 # ── Register ───────────────────────────────────────────────────────────────
+
 
 class TestRegister:
     async def test_new_user_returns_201(self, client: AsyncClient):
@@ -83,6 +84,7 @@ class TestRegister:
 
 # ── Login ──────────────────────────────────────────────────────────────────
 
+
 class TestLogin:
     async def test_valid_credentials_returns_tokens(self, client: AsyncClient, sample_user: User, mock_redis):
         resp = await client.post(
@@ -97,27 +99,28 @@ class TestLogin:
         assert data["token_type"] == "bearer"
         assert "refresh_token" in resp.cookies
 
-    async def test_wrong_password_returns_400(self, client: AsyncClient, sample_user: User, mock_redis):
+    async def test_wrong_password_returns_401(self, client: AsyncClient, sample_user: User, mock_redis):
         resp = await client.post(
             "/api/v1/auth/login",
             json={"email": sample_user.email, "password": "WrongPassword1!"},
         )
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_unknown_email_returns_400(self, client: AsyncClient, mock_redis):
+    async def test_unknown_email_returns_401(self, client: AsyncClient, mock_redis):
         resp = await client.post(
             "/api/v1/auth/login",
             json={"email": "nobody@example.com", "password": "Password1!"},
         )
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_unverified_email_returns_403(self, client: AsyncClient, unverified_user: User, mock_redis):
-        resp = await client.post(
-            "/api/v1/auth/login",
-            json={"email": unverified_user.email, "password": "Password1!"},
-        )
-        assert resp.status_code == status.HTTP_403_FORBIDDEN
-        assert ResponseMessages.EMAIL_NOT_VERIFIED in resp.json()["detail"]["message"]
+    async def test_unverified_email_returns_200_with_flag(self, client: AsyncClient, unverified_user: User, mock_redis):
+        with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock, return_value=True):
+            resp = await client.post(
+                "/api/v1/auth/login",
+                json={"email": unverified_user.email, "password": "Password1!"},
+            )
+        assert resp.status_code == status.HTTP_200_OK
+        assert resp.json()["email_verification_required"] is True
 
     async def test_inactive_account_returns_403(self, client: AsyncClient, inactive_user: User, mock_redis):
         resp = await client.post(
@@ -132,6 +135,7 @@ class TestLogin:
 
 
 # ── Verify OTP ─────────────────────────────────────────────────────────────
+
 
 class TestVerifyOtp:
     async def test_valid_email_verification_otp_returns_tokens(
@@ -163,29 +167,27 @@ class TestVerifyOtp:
         data = resp.json()
         assert "reset_token" in data
 
-    async def test_wrong_otp_returns_400(
-        self, client: AsyncClient, db: AsyncSession, unverified_user: User
-    ):
+    async def test_wrong_otp_returns_401(self, client: AsyncClient, db: AsyncSession, unverified_user: User):
         await _seed_otp(db, unverified_user, "111111", "email_verification")
         resp = await client.post(
             "/api/v1/auth/verify-otp",
             json={"email": unverified_user.email, "otp": "999999", "purpose": "email_verification"},
         )
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_no_active_otp_returns_400(self, client: AsyncClient, sample_user: User):
+    async def test_no_active_otp_returns_401(self, client: AsyncClient, sample_user: User):
         resp = await client.post(
             "/api/v1/auth/verify-otp",
             json={"email": sample_user.email, "otp": "000000", "purpose": "email_verification"},
         )
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_nonexistent_email_returns_400(self, client: AsyncClient):
+    async def test_nonexistent_email_returns_401(self, client: AsyncClient):
         resp = await client.post(
             "/api/v1/auth/verify-otp",
             json={"email": "ghost@example.com", "otp": "123456", "purpose": "email_verification"},
         )
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
     async def test_invalid_purpose_returns_422(self, client: AsyncClient):
         resp = await client.post(
@@ -203,6 +205,7 @@ class TestVerifyOtp:
 
 
 # ── Resend OTP ─────────────────────────────────────────────────────────────
+
 
 class TestResendOtp:
     async def test_valid_email_returns_200(self, client: AsyncClient, unverified_user: User):
@@ -223,11 +226,10 @@ class TestResendOtp:
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True
 
-    async def test_rate_limit_exceeded_returns_429(
-        self, client: AsyncClient, db: AsyncSession, unverified_user: User
-    ):
+    async def test_rate_limit_exceeded_returns_429(self, client: AsyncClient, db: AsyncSession, unverified_user: User):
         from app.features.auth import repository as repo
         from app.utils.helpers import hash_otp
+
         for _ in range(settings.otp_max_resends):
             await repo.create_email_otp(
                 db=db,
@@ -252,6 +254,7 @@ class TestResendOtp:
 
 # ── Refresh ────────────────────────────────────────────────────────────────
 
+
 class TestRefresh:
     async def test_valid_token_returns_new_pair(self, client: AsyncClient, user_refresh_token: str):
         resp = await client.post(
@@ -265,38 +268,37 @@ class TestRefresh:
         assert data["token_type"] == "bearer"
         assert "refresh_token" in resp.cookies
 
-    async def test_no_cookie_returns_400(self, client: AsyncClient):
+    async def test_no_cookie_returns_401(self, client: AsyncClient):
         resp = await client.post("/api/v1/auth/refresh")
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_invalid_token_returns_400(self, client: AsyncClient):
+    async def test_invalid_token_returns_401(self, client: AsyncClient):
         resp = await client.post(
             "/api/v1/auth/refresh",
             cookies={"refresh_token": "invalid.token.here"},
         )
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_used_token_returns_400(self, client: AsyncClient, user_refresh_token: str):
+    async def test_used_token_returns_401(self, client: AsyncClient, user_refresh_token: str):
         """After first use the old token is removed from Redis — replaying it must be rejected."""
         await client.post("/api/v1/auth/refresh", cookies={"refresh_token": user_refresh_token})
         resp = await client.post("/api/v1/auth/refresh", cookies={"refresh_token": user_refresh_token})
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
-    async def test_access_token_used_as_refresh_returns_400(self, client: AsyncClient, user_token: str):
+    async def test_access_token_used_as_refresh_returns_401(self, client: AsyncClient, user_token: str):
         """An access token must be rejected when sent to the refresh endpoint."""
         resp = await client.post(
             "/api/v1/auth/refresh",
             cookies={"refresh_token": user_token},
         )
-        assert resp.status_code == status.HTTP_400_BAD_REQUEST
+        assert resp.status_code == status.HTTP_401_UNAUTHORIZED
 
 
 # ── Logout ─────────────────────────────────────────────────────────────────
 
+
 class TestLogout:
-    async def test_authenticated_user_can_logout(
-        self, client: AsyncClient, user_token: str, mock_redis
-    ):
+    async def test_authenticated_user_can_logout(self, client: AsyncClient, user_token: str, mock_redis):
         resp = await client.post(
             "/api/v1/auth/logout",
             headers={"Authorization": f"Bearer {user_token}"},
@@ -318,20 +320,17 @@ class TestLogout:
 
 # ── Forgot Password ────────────────────────────────────────────────────────
 
+
 class TestForgotPassword:
     async def test_always_returns_200_for_unknown_email(self, client: AsyncClient):
         """Anti-enumeration: must return 200 even for non-existent email."""
-        resp = await client.post(
-            "/api/v1/auth/forgot-password", json={"email": "nobody@example.com"}
-        )
+        resp = await client.post("/api/v1/auth/forgot-password", json={"email": "nobody@example.com"})
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True
 
     async def test_returns_200_for_known_email(self, client: AsyncClient, sample_user: User):
         with patch("app.features.auth.service.send_otp_email", new_callable=AsyncMock, return_value=True):
-            resp = await client.post(
-                "/api/v1/auth/forgot-password", json={"email": sample_user.email}
-            )
+            resp = await client.post("/api/v1/auth/forgot-password", json={"email": sample_user.email})
         assert resp.status_code == status.HTTP_200_OK
         assert resp.json()["success"] is True
 
@@ -342,10 +341,9 @@ class TestForgotPassword:
 
 # ── Change Password ────────────────────────────────────────────────────────
 
+
 class TestChangePassword:
-    async def test_valid_reset_token_changes_password(
-        self, client: AsyncClient, sample_user: User, mock_redis
-    ):
+    async def test_valid_reset_token_changes_password(self, client: AsyncClient, sample_user: User, mock_redis):
         reset_token = create_password_reset_token(subject=sample_user.id, email=sample_user.email)
         resp = await client.post(
             "/api/v1/auth/change-password",
@@ -381,9 +379,7 @@ class TestChangePassword:
         )
         assert resp.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
-    async def test_access_token_used_as_reset_token_returns_error(
-        self, client: AsyncClient, user_token: str
-    ):
+    async def test_access_token_used_as_reset_token_returns_error(self, client: AsyncClient, user_token: str):
         """An access-scoped token must be rejected by the change-password endpoint."""
         resp = await client.post(
             "/api/v1/auth/change-password",
@@ -394,6 +390,7 @@ class TestChangePassword:
 
 
 # ── Register Admin ─────────────────────────────────────────────────────────
+
 
 class TestRegisterAdmin:
     async def test_correct_secret_creates_admin_201(self, client: AsyncClient):
