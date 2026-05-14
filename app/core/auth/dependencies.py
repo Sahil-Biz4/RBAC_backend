@@ -10,22 +10,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import Request
 
 from app.core.auth.jwt_handler import decode_password_reset_token
-from app.core.config.settings import settings
+from app.core.auth.jwt_types import AccessTokenPayload
 from app.core.database import get_db
 from app.models.user import User
-from app.utils.constants import ResponseMessages
+from app.utils.constants import ErrorCodes, ResponseMessages
 
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
-async def get_current_user_payload(request: Request) -> dict:
+async def get_current_user_payload(request: Request) -> AccessTokenPayload:
     """Extract the pre-validated JWT payload attached by AuthMiddleware.
 
     Raises:
         HTTPException 401: If the token payload is absent from request state.
     """
-    payload = getattr(request.state, "token_payload", None)
+    payload: AccessTokenPayload | None = getattr(request.state, "token_payload", None)
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -35,7 +35,7 @@ async def get_current_user_payload(request: Request) -> dict:
 
 
 async def get_current_user(
-    payload: dict = Depends(get_current_user_payload),
+    payload: AccessTokenPayload = Depends(get_current_user_payload),
     db: AsyncSession = Depends(get_db),
 ) -> User:
     """Resolve the authenticated User record from the database.
@@ -60,29 +60,19 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
         )
-    return user
 
-
-async def get_current_admin_user(
-    current_user: User = Depends(get_current_user),
-    payload: dict = Depends(get_current_user_payload),
-) -> User:
-    """Ensure the current user holds an admin-level role.
-
-    Checks the 'roles' claim in the JWT for 'admin' or 'super_admin'.
-
-    Raises:
-        HTTPException 403: If the user does not have an admin role.
-    """
-    from app.utils.constants import RoleNames
-
-    roles: list[str] = payload.get("roles", [])
-    if not any(r in roles for r in RoleNames.ADMIN_ROLES):
+    token_version = payload.get("perms_version")
+    if token_version is not None and token_version != user.perms_version:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={"success": False, "message": ResponseMessages.ADMIN_ONLY},
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "success": False,
+                "message": ResponseMessages.PERMISSIONS_CHANGED,
+                "error_code": ErrorCodes.PERMISSIONS_CHANGED,
+            },
         )
-    return current_user
+
+    return user
 
 
 async def get_password_reset_user(
@@ -92,7 +82,7 @@ async def get_password_reset_user(
     """Decode a password-reset JWT and return the corresponding User.
 
     Raises:
-        HTTPException 401: If the token is invalid, expired, wrong scope, or user not found.
+        HTTPException 400: If the token is invalid, expired, wrong scope, or user not found.
     """
     from app.features.auth.repository import get_user_by_id
 
@@ -100,21 +90,21 @@ async def get_password_reset_user(
         payload = decode_password_reset_token(token)
     except (PyJWTError, jwt.InvalidTokenError) as exc:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "message": ResponseMessages.INVALID_RESET_TOKEN},
         ) from exc
 
     user_id_str = payload.get("sub")
     if not user_id_str:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"success": False, "message": ResponseMessages.INVALID_RESET_TOKEN},
         )
 
     user = await get_user_by_id(db=db, user_id=int(user_id_str))
     if not user:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_400_BAD_REQUEST,
             detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
         )
     return user

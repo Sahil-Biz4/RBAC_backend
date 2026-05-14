@@ -3,21 +3,20 @@
 import asyncio
 import logging
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import app.models  # ensure all ORM models are registered in metadata
 from app.core.config.settings import settings
-from app.core.logging_config import configure_logging
-
-configure_logging(environment=settings.environment)
-
 from app.core.constants import (
     APITags,
-    CORS_WILDCARD,
     ErrorMessages,
     HealthCheckFields,
     HealthCheckStatus,
@@ -25,22 +24,32 @@ from app.core.constants import (
     RoutePaths,
 )
 from app.core.database import get_db
+from app.core.limiter import limiter
+from app.core.logging_config import configure_logging
 from app.core.middleware.auth import AuthMiddleware
 from app.core.middleware.request_logging import RequestLoggingMiddleware
 from app.core.middleware.security_headers import SecurityHeadersMiddleware
+from app.core.services.redis_service import redis_service
 from app.features.admin.routes import router as admin_router
 from app.features.auth.routes import router as auth_router
 from app.features.auth.routes_definition import routes as auth_routes
 from app.features.users.routes import router as users_router
-from app.utils.constants import PROJECT_NAME, VERSION
+from app.utils.constants import VERSION
 
+
+configure_logging(environment=settings.environment)
 
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 logger = logging.getLogger(__name__)
 
-import app.models  # noqa: E402, F401 — ensure all ORM models are registered in metadata
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    await redis_service.connect()
+    yield
+    await redis_service.disconnect()
 
 
 def create_app() -> FastAPI:
@@ -59,12 +68,16 @@ def create_app() -> FastAPI:
     openapi_url = None if settings.environment == "production" else "/openapi.json"
 
     app = FastAPI(
-        title=PROJECT_NAME,
+        title=settings.project_name,
         version=VERSION,
         docs_url=docs_url,
         redoc_url=redoc_url,
         openapi_url=openapi_url,
+        lifespan=lifespan,
     )
+
+    app.state.limiter = limiter
+    app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
     @app.exception_handler(Exception)
     async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
@@ -80,7 +93,14 @@ def create_app() -> FastAPI:
     app.add_middleware(
         AuthMiddleware,
         excluded_prefixes=[
-            auth_routes.BASE,
+            auth_routes.BASE + auth_routes.REGISTER,
+            auth_routes.BASE + auth_routes.REGISTER_ADMIN,
+            auth_routes.BASE + auth_routes.LOGIN,
+            auth_routes.BASE + auth_routes.REFRESH,
+            auth_routes.BASE + auth_routes.VERIFY_OTP,
+            auth_routes.BASE + auth_routes.RESEND_OTP,
+            auth_routes.BASE + auth_routes.FORGOT_PASSWORD,
+            auth_routes.BASE + auth_routes.CHANGE_PASSWORD,
             RoutePaths.DOCS,
             RoutePaths.REDOC,
             RoutePaths.OPENAPI_JSON,
@@ -93,8 +113,8 @@ def create_app() -> FastAPI:
             CORSMiddleware,
             allow_origins=settings.cors_origins,
             allow_credentials=True,
-            allow_methods=[CORS_WILDCARD],
-            allow_headers=[CORS_WILDCARD],
+            allow_methods=settings.cors_allowed_methods,
+            allow_headers=settings.cors_allowed_headers,
         )
 
     @app.get(RoutePaths.HEALTH, tags=[APITags.HEALTH], summary="Health check")

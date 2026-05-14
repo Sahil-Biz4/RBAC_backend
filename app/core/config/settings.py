@@ -5,10 +5,11 @@ and validation. Supports mode-specific .env files (local/development/staging/pro
 Zero manual os.environ.get() calls — all values are declarative field definitions.
 """
 
+import logging
 import os
 from pathlib import Path
 
-from pydantic import Field, computed_field, field_validator
+from pydantic import Field, computed_field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 from app.core import constants
@@ -69,7 +70,6 @@ class Settings(BaseSettings):
         default=constants.OTP_MAX_VERIFY_ATTEMPTS,
         alias="OTP_MAX_VERIFY_ATTEMPTS",
     )
-    otp_lockout_minutes: int = Field(default=constants.OTP_LOCKOUT_MINUTES, alias="OTP_LOCKOUT_MINUTES")
     otp_max_resends: int = Field(default=constants.OTP_MAX_RESENDS, alias="OTP_MAX_RESENDS")
     otp_resend_window_minutes: int = Field(
         default=constants.OTP_RESEND_WINDOW_MINUTES,
@@ -80,22 +80,40 @@ class Settings(BaseSettings):
     sendgrid_api_key: str = Field(default="", alias="SENDGRID_API_KEY")
     sendgrid_from_email: str = Field(default="", alias="SENDGRID_FROM_EMAIL")
 
-    # ── Redis / Rate Limiting ─────────────────────────────────────────────────
-    redis_url: str = Field(default="", alias="REDIS_URL")
-    rate_limit_enabled: bool = Field(default=True, alias="RATE_LIMIT_ENABLED")
-    rate_limit_storage_uri: str = Field(default="", alias="RATE_LIMIT_STORAGE_URI")
-
-    # ── Database Connection Pool ──────────────────────────────────────────────
-    db_pool_size: int = Field(default=20, alias="DB_POOL_SIZE")
-    db_max_overflow: int = Field(default=10, alias="DB_MAX_OVERFLOW")
-    db_pool_timeout: int = Field(default=30, alias="DB_POOL_TIMEOUT")
-    db_pool_recycle: int = Field(default=3600, alias="DB_POOL_RECYCLE")
+    # ── Redis ─────────────────────────────────────────────────────────────────
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 
     # ── CORS ─────────────────────────────────────────────────────────────────
     cors_origins_raw: str = Field(default="", alias="CORS_ORIGINS")
+    cors_allowed_methods_raw: str = Field(default="GET,POST,PUT,DELETE,PATCH", alias="CORS_ALLOWED_METHODS")
+    cors_allowed_headers_raw: str = Field(default="Content-Type,Authorization", alias="CORS_ALLOWED_HEADERS")
+
+    # ── Branding ─────────────────────────────────────────────────────────────
+    project_name: str = Field(default="Auth Module", alias="PROJECT_NAME")
+    app_name: str = Field(default="AuthModule", alias="APP_NAME")
+    support_email: str = Field(default="support@yourdomain.com", alias="SUPPORT_EMAIL")
+    brand_color: str = Field(default="#1a1a2e", alias="BRAND_COLOR")
+
+    # ── Permissions ───────────────────────────────────────────────────────────
+    allowed_resources_raw: str = Field(
+        default="users,roles,permissions,profile",
+        alias="ALLOWED_RESOURCES",
+    )
+    allowed_actions_raw: str = Field(
+        default="read,create,update,delete",
+        alias="ALLOWED_ACTIONS",
+    )
 
     # ── Admin ─────────────────────────────────────────────────────────────────
     admin_secret_key: str = Field(default="", alias="ADMIN_SECRET_KEY")
+    admin_register_max_failures: int = Field(
+        default=constants.ADMIN_REGISTER_MAX_FAILURES,
+        alias="ADMIN_REGISTER_MAX_FAILURES",
+    )
+    admin_register_lockout_minutes: int = Field(
+        default=constants.ADMIN_REGISTER_LOCKOUT_MINUTES,
+        alias="ADMIN_REGISTER_LOCKOUT_MINUTES",
+    )
 
     # ── Docs Auth ─────────────────────────────────────────────────────────────
     docs_username: str = Field(default="", alias="DOCS_USERNAME")
@@ -107,6 +125,22 @@ class Settings(BaseSettings):
         if not v:
             raise ValueError("JWT_SECRET_KEY must be set and non-empty.")
         return v
+
+    @field_validator("admin_secret_key")
+    @classmethod
+    def _admin_secret_must_not_be_empty(cls, v: str) -> str:
+        if not v:
+            raise ValueError("ADMIN_SECRET_KEY must be set and non-empty.")
+        return v
+
+    @model_validator(mode="after")
+    def _warn_missing_otp_secret(self) -> "Settings":
+        if not self.otp_secret_key:
+            logging.getLogger(__name__).warning(
+                "OTP_SECRET_KEY is not configured — falling back to JWT_SECRET_KEY. "
+                "Set a dedicated OTP_SECRET_KEY in production for independent key rotation."
+            )
+        return self
 
     @computed_field  # type: ignore[misc]
     @property
@@ -121,6 +155,30 @@ class Settings(BaseSettings):
         if not self.cors_origins_raw:
             return []
         return [o.strip() for o in self.cors_origins_raw.split(",") if o.strip()]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def cors_allowed_methods(self) -> list[str]:
+        """Parse the comma-separated CORS_ALLOWED_METHODS string into a list."""
+        return [m.strip() for m in self.cors_allowed_methods_raw.split(",") if m.strip()]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def cors_allowed_headers(self) -> list[str]:
+        """Parse the comma-separated CORS_ALLOWED_HEADERS string into a list."""
+        return [h.strip() for h in self.cors_allowed_headers_raw.split(",") if h.strip()]
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def allowed_resources(self) -> set[str]:
+        """Parse the comma-separated ALLOWED_RESOURCES string into a set."""
+        return {r.strip() for r in self.allowed_resources_raw.split(",") if r.strip()}
+
+    @computed_field  # type: ignore[misc]
+    @property
+    def allowed_actions(self) -> set[str]:
+        """Parse the comma-separated ALLOWED_ACTIONS string into a set."""
+        return {a.strip() for a in self.allowed_actions_raw.split(",") if a.strip()}
 
     @computed_field  # type: ignore[misc]
     @property

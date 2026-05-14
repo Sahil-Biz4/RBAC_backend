@@ -6,13 +6,13 @@ must be imported before ``Base.metadata`` is inspected. This file is the single 
 that guarantees all models are registered.
 """
 
-from app.models.associations import RolePermission, UserRole  # noqa: F401
-from app.models.base import Base  # noqa: F401
-from app.models.email_otp import EmailOtp  # noqa: F401
-from app.models.permission import Permission  # noqa: F401
-from app.models.refresh_token import RefreshToken  # noqa: F401
-from app.models.role import Role  # noqa: F401
-from app.models.user import User  # noqa: F401
+from app.models.associations import RolePermission, UserRole
+from app.models.base import Base
+from app.models.email_otp import EmailOtp
+from app.models.permission import Permission
+from app.models.role import Role
+from app.models.user import User
+
 
 __all__ = [
     "Base",
@@ -22,5 +22,4 @@ __all__ = [
     "UserRole",
     "RolePermission",
     "EmailOtp",
-    "RefreshToken",
 ]

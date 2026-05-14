@@ -7,8 +7,8 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.core.config.settings import settings
-from app.models import Base  # noqa: F401 — also registers all ORM models in Base.metadata
-import app.models  # noqa: F401, E402 — side-effect: populates Base.metadata
+from app.models import Base  # — also registers all ORM models in Base.metadata
+import app.models  # noqa: F401 — side-effect: populates Base.metadata
 
 
 config = context.config
@@ -54,6 +54,7 @@ async def run_async_migrations() -> None:
 
 def run_migrations_online() -> None:
     import sys
+
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(run_async_migrations())

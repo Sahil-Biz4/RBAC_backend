@@ -13,7 +13,6 @@ from sendgrid.helpers.mail import Mail
 
 from app.core.config.settings import settings
 from app.core.services.email_templates import otp_email_html
-from app.utils.constants import APP_NAME
 
 
 logger = logging.getLogger(__name__)
@@ -44,7 +43,7 @@ async def send_otp_email(to_email: str, otp: str, purpose: str) -> bool:
         logger.warning("SendGrid not configured — OTP email not sent to %s", to_email)
         return False
 
-    subject = f"{APP_NAME} — Your OTP for {purpose}"
+    subject = f"{settings.app_name} — Your OTP for {purpose}"
     html_content = otp_email_html(otp=otp, purpose=purpose)
 
     message = Mail(

@@ -1,54 +1,80 @@
 """Admin feature HTTP routes — role and permission management."""
 
-from fastapi import APIRouter, Depends, HTTPException, Path, status
+from fastapi import APIRouter, Depends, Path, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.auth.rbac import require_any_role
+from app.core.auth.dependencies import get_current_user
+from app.core.auth.rbac import require_permission
 from app.core.constants import APITags, ResponseFields
 from app.core.database import get_db
-from app.features.admin import repository as repo
+from app.core.exceptions import AppError
+from app.core.limiter import limiter
+from app.core.response import paginated_json
+from app.features.admin import service
 from app.features.admin.routes_definition import routes as r
 from app.features.admin.schemas import AssignPermissionIn, AssignRoleIn, PermissionIn, RoleIn
-from app.utils.constants import Permissions, ResponseMessages, RoleNames
+from app.utils.constants import Permissions, ResponseMessages
 
 
-_admin_gate = [Depends(require_any_role(RoleNames.ADMIN_ROLES))]
-
-router = APIRouter(prefix=r.BASE, tags=[APITags.ADMIN], dependencies=_admin_gate)
+router = APIRouter(
+    prefix=r.BASE,
+    tags=[APITags.ADMIN],
+    dependencies=[Depends(get_current_user)],
+)
 
 
 # ── Roles ──────────────────────────────────────────────────────────────────
 
-@router.get(r.ROLES, summary="List all roles")
-async def list_roles(db: AsyncSession = Depends(get_db)) -> JSONResponse:
-    roles = await repo.get_all_roles(db=db)
+
+@router.get(r.ROLES, summary="List all roles", dependencies=[Depends(require_permission(Permissions.ROLES_READ))])
+@limiter.limit("60/minute")
+async def list_roles(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    search: str | None = Query(default=None, max_length=100),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    """Return a paginated list of roles. Requires ``roles:read`` permission."""
+    skip = max(0, (page - 1) * limit)
+    roles, total = await service.list_roles(db=db, skip=skip, limit=limit, search=search)
+    roles_data = [
+        {
+            "id": role.id,
+            "name": role.name,
+            "description": role.description,
+            "permissions": [
+                {
+                    "id": rp.permission.id,
+                    "name": rp.permission.name,
+                    "resource": rp.permission.resource,
+                    "action": rp.permission.action,
+                    "description": rp.permission.description,
+                }
+                for rp in role.role_permissions
+            ],
+        }
+        for role in roles
+    ]
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={
-            ResponseFields.SUCCESS: True,
-            "roles": [
-                {
-                    "id": role.id,
-                    "name": role.name,
-                    "description": role.description,
-                    "permissions": [rp.permission.name for rp in role.role_permissions],
-                }
-                for role in roles
-            ],
-        },
+        content=paginated_json("roles", roles_data, total, page, limit, skip, **{ResponseFields.SEARCH: search}),
     )
 
 
-@router.post(r.ROLES, status_code=status.HTTP_201_CREATED, summary="Create a role")
-async def create_role(body: RoleIn, db: AsyncSession = Depends(get_db)) -> JSONResponse:
-    existing = await repo.get_role_by_name(db=db, name=body.name)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.ROLE_ALREADY_EXISTS},
-        )
-    role = await repo.create_role(db=db, name=body.name, description=body.description)
+@router.post(
+    r.ROLES,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a role",
+    dependencies=[Depends(require_permission(Permissions.ROLES_CREATE))],
+)
+@limiter.limit("30/minute")
+async def create_role(request: Request, body: RoleIn, db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    try:
+        role = await service.create_role(db=db, name=body.name, description=body.description)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={
@@ -58,24 +84,18 @@ async def create_role(body: RoleIn, db: AsyncSession = Depends(get_db)) -> JSONR
     )
 
 
-@router.put(r.ROLE_BY_ID, summary="Update a role")
+@router.put(r.ROLE_BY_ID, summary="Update a role", dependencies=[Depends(require_permission(Permissions.ROLES_UPDATE))])
+@limiter.limit("30/minute")
 async def update_role(
+    request: Request,
     body: RoleIn,
     role_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    role = await repo.get_role_by_id(db=db, role_id=role_id)
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.ROLE_NOT_FOUND},
-        )
-    if role.name in RoleNames.ALL and body.name != role.name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.CANNOT_DELETE_DEFAULT_ROLE},
-        )
-    role = await repo.update_role(db=db, role=role, name=body.name, description=body.description)
+    try:
+        role = await service.update_role(db=db, role_id=role_id, name=body.name, description=body.description)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
@@ -90,107 +110,113 @@ async def update_role(
     )
 
 
-@router.delete(r.ROLE_BY_ID, summary="Delete a role")
+@router.delete(
+    r.ROLE_BY_ID, summary="Delete a role", dependencies=[Depends(require_permission(Permissions.ROLES_DELETE))]
+)
+@limiter.limit("30/minute")
 async def delete_role(
+    request: Request,
     role_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    role = await repo.get_role_by_id(db=db, role_id=role_id)
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.ROLE_NOT_FOUND},
-        )
-    if role.name in RoleNames.ALL:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.CANNOT_DELETE_DEFAULT_ROLE},
-        )
-    await repo.delete_role(db=db, role=role)
+    try:
+        await service.delete_role(db=db, role_id=role_id)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: "Role deleted."},
+        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: ResponseMessages.ROLE_DELETED},
     )
 
 
 # ── Role ↔ Permission assignments ─────────────────────────────────────────
 
-@router.post(r.ROLE_PERMISSIONS, summary="Assign permission to role")
+
+@router.post(
+    r.ROLE_PERMISSIONS,
+    summary="Assign permission to role",
+    dependencies=[Depends(require_permission(Permissions.ROLES_UPDATE))],
+)
+@limiter.limit("30/minute")
 async def assign_permission_to_role(
+    request: Request,
     body: AssignPermissionIn,
     role_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    role = await repo.get_role_by_id(db=db, role_id=role_id)
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.ROLE_NOT_FOUND},
-        )
-    permission = await repo.get_permission_by_id(db=db, permission_id=body.permission_id)
-    if not permission:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_NOT_FOUND},
-        )
-    assigned = await repo.assign_permission_to_role(db=db, role_id=role_id, permission_id=body.permission_id)
-    if not assigned:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_ALREADY_ASSIGNED},
-        )
+    try:
+        await service.assign_permission_to_role(db=db, role_id=role_id, permission_id=body.permission_id)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: "Permission assigned to role."},
+        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_ASSIGNED_TO_ROLE},
     )
 
 
-@router.delete(r.ROLE_PERMISSION_BY_ID, summary="Revoke permission from role")
+@router.delete(
+    r.ROLE_PERMISSION_BY_ID,
+    summary="Revoke permission from role",
+    dependencies=[Depends(require_permission(Permissions.ROLES_UPDATE))],
+)
+@limiter.limit("30/minute")
 async def revoke_permission_from_role(
+    request: Request,
     role_id: int = Path(..., gt=0),
     permission_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    removed = await repo.revoke_permission_from_role(db=db, role_id=role_id, permission_id=permission_id)
-    if not removed:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_NOT_ASSIGNED},
-        )
+    try:
+        await service.revoke_permission_from_role(db=db, role_id=role_id, permission_id=permission_id)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: "Permission revoked from role."},
+        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_REVOKED_FROM_ROLE},
     )
 
 
 # ── Permissions ────────────────────────────────────────────────────────────
 
-@router.get(r.PERMISSIONS, summary="List all permissions")
-async def list_permissions(db: AsyncSession = Depends(get_db)) -> JSONResponse:
-    permissions = await repo.get_all_permissions(db=db)
+
+@router.get(
+    r.PERMISSIONS,
+    summary="List all permissions",
+    dependencies=[Depends(require_permission(Permissions.PERMISSIONS_READ))],
+)
+@limiter.limit("60/minute")
+async def list_permissions(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+) -> JSONResponse:
+    skip = max(0, (page - 1) * limit)
+    permissions, total = await service.list_permissions(db=db, skip=skip, limit=limit)
+    perms_data = [
+        {"id": p.id, "name": p.name, "resource": p.resource, "action": p.action, "description": p.description}
+        for p in permissions
+    ]
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={
-            ResponseFields.SUCCESS: True,
-            "permissions": [
-                {"id": p.id, "name": p.name, "resource": p.resource, "action": p.action, "description": p.description}
-                for p in permissions
-            ],
-        },
+        content=paginated_json("permissions", perms_data, total, page, limit, skip),
     )
 
 
-@router.post(r.PERMISSIONS, status_code=status.HTTP_201_CREATED, summary="Create a permission")
-async def create_permission(body: PermissionIn, db: AsyncSession = Depends(get_db)) -> JSONResponse:
-    existing = await repo.get_permission_by_name(db=db, name=body.name)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_ALREADY_EXISTS},
+@router.post(
+    r.PERMISSIONS,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a permission",
+    dependencies=[Depends(require_permission(Permissions.PERMISSIONS_CREATE))],
+)
+@limiter.limit("30/minute")
+async def create_permission(request: Request, body: PermissionIn, db: AsyncSession = Depends(get_db)) -> JSONResponse:
+    try:
+        permission = await service.create_permission(
+            db=db, name=body.name, resource=body.resource, action=body.action, description=body.description
         )
-    permission = await repo.create_permission(
-        db=db, name=body.name, resource=body.resource, action=body.action, description=body.description
-    )
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_201_CREATED,
         content={
@@ -206,37 +232,45 @@ async def create_permission(body: PermissionIn, db: AsyncSession = Depends(get_d
     )
 
 
-@router.delete(r.PERMISSION_BY_ID, summary="Delete a permission")
+@router.delete(
+    r.PERMISSION_BY_ID,
+    summary="Delete a permission",
+    dependencies=[Depends(require_permission(Permissions.PERMISSIONS_DELETE))],
+)
+@limiter.limit("30/minute")
 async def delete_permission(
+    request: Request,
     permission_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    permission = await repo.get_permission_by_id(db=db, permission_id=permission_id)
-    if not permission:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_NOT_FOUND},
-        )
-    await repo.delete_permission(db=db, permission=permission)
+    try:
+        await service.delete_permission(db=db, permission_id=permission_id)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: "Permission deleted."},
+        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: ResponseMessages.PERMISSION_DELETED},
     )
 
 
 # ── User ↔ Role assignments ────────────────────────────────────────────────
 
-@router.get(r.USER_ROLES, summary="Get roles assigned to a user")
+
+@router.get(
+    r.USER_ROLES,
+    summary="Get roles assigned to a user",
+    dependencies=[Depends(require_permission(Permissions.USERS_READ))],
+)
+@limiter.limit("60/minute")
 async def get_user_roles(
+    request: Request,
     user_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    user = await repo.get_user_with_roles(db=db, user_id=user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.USER_NOT_FOUND},
-        )
+    try:
+        user = await service.get_user_roles(db=db, user_id=user_id)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
@@ -246,49 +280,43 @@ async def get_user_roles(
     )
 
 
-@router.post(r.USER_ROLES, summary="Assign role to user")
+@router.post(
+    r.USER_ROLES, summary="Assign role to user", dependencies=[Depends(require_permission(Permissions.USERS_UPDATE))]
+)
+@limiter.limit("30/minute")
 async def assign_role_to_user(
+    request: Request,
     body: AssignRoleIn,
     user_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    user = await repo.get_user_with_roles(db=db, user_id=user_id)
-    if not user:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.USER_NOT_FOUND},
-        )
-    role = await repo.get_role_by_id(db=db, role_id=body.role_id)
-    if not role:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.ROLE_NOT_FOUND},
-        )
-    assigned = await repo.assign_role_to_user(db=db, user_id=user_id, role_id=body.role_id)
-    if not assigned:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.ROLE_ALREADY_ASSIGNED},
-        )
+    try:
+        await service.assign_role_to_user(db=db, user_id=user_id, role_id=body.role_id)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: "Role assigned to user."},
+        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: ResponseMessages.ROLE_ASSIGNED_TO_USER},
     )
 
 
-@router.delete(r.USER_ROLE_BY_ID, summary="Revoke role from user")
+@router.delete(
+    r.USER_ROLE_BY_ID,
+    summary="Revoke role from user",
+    dependencies=[Depends(require_permission(Permissions.USERS_UPDATE))],
+)
+@limiter.limit("30/minute")
 async def revoke_role_from_user(
+    request: Request,
     user_id: int = Path(..., gt=0),
     role_id: int = Path(..., gt=0),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    removed = await repo.revoke_role_from_user(db=db, user_id=user_id, role_id=role_id)
-    if not removed:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail={ResponseFields.SUCCESS: False, ResponseFields.MESSAGE: ResponseMessages.ROLE_NOT_ASSIGNED},
-        )
+    try:
+        await service.revoke_role_from_user(db=db, user_id=user_id, role_id=role_id)
+    except AppError as exc:
+        raise exc.as_http_exception() from exc
     return JSONResponse(
         status_code=status.HTTP_200_OK,
-        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: "Role revoked from user."},
+        content={ResponseFields.SUCCESS: True, ResponseFields.MESSAGE: ResponseMessages.ROLE_REVOKED_FROM_USER},
     )

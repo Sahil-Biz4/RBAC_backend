@@ -42,26 +42,20 @@ class AppError(Exception):
         self.message = message
 
     def as_http_exception(self) -> HTTPException:
-        """Convert this domain exception into a FastAPI HTTPException.
-        
-        Returns only error_code — frontend uses it for i18n translations.
-        """
+        """Convert this domain exception into a FastAPI HTTPException."""
         return HTTPException(
             status_code=self.status_code,
-            detail={"success": False, "error_code": self.code},
+            detail={"success": False, "error_code": self.code, "message": self.message},
         )
 
 
 # ── Auth ─────────────────────────────────────────────────────────────────────
 
+
 class AuthError(AppError):
-    """Authentication failure — invalid credentials, bad OTP, etc.
+    """Authentication failure — invalid credentials, bad OTP, etc."""
 
-    Uses 400 so the frontend interceptor does not treat it as a session-expiry
-    (which would trigger token refresh and redirect to login).
-    """
-
-    status_code = status.HTTP_400_BAD_REQUEST
+    status_code = status.HTTP_401_UNAUTHORIZED
 
 
 class ForbiddenError(AppError):
@@ -78,6 +72,7 @@ class TokenError(AppError):
 
 # ── Resource ─────────────────────────────────────────────────────────────────
 
+
 class NotFoundError(AppError):
     """Requested resource does not exist."""
 
@@ -90,7 +85,14 @@ class ConflictError(AppError):
     status_code = status.HTTP_409_CONFLICT
 
 
+class BadRequestError(AppError):
+    """Invalid request that violates a domain constraint (e.g. modifying a protected resource)."""
+
+    status_code = status.HTTP_400_BAD_REQUEST
+
+
 # ── Input / Validation ───────────────────────────────────────────────────────
+
 
 class ValidationError(AppError):
     """Request payload failed domain-level validation."""
@@ -105,6 +107,7 @@ class RateLimitError(AppError):
 
 
 # ── Session ──────────────────────────────────────────────────────────────────
+
 
 class SessionError(AppError):
     """Session-related failure — revoked, expired, or not found."""

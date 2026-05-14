@@ -1,4 +1,7 @@
-"""Core system-level constants — never hardcode these values directly in the codebase."""
+"""Core system-level constants — never hardcode these values directly in the codebase.
+
+For user-facing response strings, role/permission names, and error codes see app/utils/constants.py.
+"""
 
 from enum import Enum
 
@@ -16,7 +19,6 @@ JWT_SCOPE_PASSWORD_RESET = "password_reset"
 # ── OTP ────────────────────────────────────────────────────────────────────
 OTP_EXPIRE_MINUTES = 10
 OTP_MAX_VERIFY_ATTEMPTS = 5
-OTP_LOCKOUT_MINUTES = 15
 OTP_MAX_RESENDS = 5
 OTP_RESEND_WINDOW_MINUTES = 60
 OTP_LENGTH = 6
@@ -31,54 +33,8 @@ class OtpPurpose(str, Enum):
     PASSWORD_RESET = "password_reset"
 
 
-# ── Audit Events ───────────────────────────────────────────────────────────
-class AuditEvent(str, Enum):
-    """Machine-readable codes for all security-relevant audit log events."""
-
-    # Authentication
-    LOGIN_SUCCESS = "LOGIN_SUCCESS"
-    LOGIN_FAILED = "LOGIN_FAILED"
-    LOGOUT = "LOGOUT"
-    REGISTER = "REGISTER"
-    REGISTER_ADMIN = "REGISTER_ADMIN"
-
-    # Session
-    SESSION_REVOKED = "SESSION_REVOKED"
-    ALL_SESSIONS_REVOKED = "ALL_SESSIONS_REVOKED"
-    TOKEN_REFRESHED = "TOKEN_REFRESHED"
-    TOKEN_REPLAY_DETECTED = "TOKEN_REPLAY_DETECTED"
-
-    # Email / OTP
-    EMAIL_VERIFIED = "EMAIL_VERIFIED"
-    OTP_SENT = "OTP_SENT"
-    OTP_RESENT = "OTP_RESENT"
-    OTP_VERIFIED = "OTP_VERIFIED"
-    OTP_FAILED = "OTP_FAILED"
-    OTP_MAX_ATTEMPTS = "OTP_MAX_ATTEMPTS"
-
-    # Password
-    PASSWORD_RESET_REQUESTED = "PASSWORD_RESET_REQUESTED"
-    PASSWORD_RESET = "PASSWORD_RESET"
-    PASSWORD_CHANGED = "PASSWORD_CHANGED"
-
-    # Admin
-    ROLE_ASSIGNED = "ROLE_ASSIGNED"
-    ROLE_REVOKED = "ROLE_REVOKED"
-    PERMISSION_ASSIGNED = "PERMISSION_ASSIGNED"
-    PERMISSION_REVOKED = "PERMISSION_REVOKED"
-    USER_DELETED = "USER_DELETED"
-
-
-# ── CORS ───────────────────────────────────────────────────────────────────
+# ── CORS ───────────────
 CORS_WILDCARD = "*"
-CORS_ALLOWED_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
-CORS_ALLOWED_HEADERS = ["Content-Type", "Authorization"]
-
-# ── Rate Limiting ──────────────────────────────────────────────────────────
-class RateLimits:
-    DEFAULT_GLOBAL = "200/minute"
-    AUTH_STRICT = "10/minute"
-    OTP_RESEND = "5/minute"
 
 
 # ── API Tags ───────────────────────────────────────────────────────────────
@@ -106,6 +62,7 @@ class ResponseFields:
     ACCESS_TOKEN = "access_token"
     REFRESH_TOKEN = "refresh_token"
     TOKEN_TYPE = "token_type"
+    SEARCH = "search"
 
 
 # ── Health check ───────────────────────────────────────────────────────────
@@ -122,10 +79,23 @@ class HealthCheckStatus:
     UNREACHABLE = "unreachable"
 
 
+# ── Admin Registration Guard ─────────────────────────────────────────────────
+ADMIN_REGISTER_RATE_LIMIT = "3/hour"
+ADMIN_REGISTER_MAX_FAILURES = 5
+ADMIN_REGISTER_LOCKOUT_MINUTES = 60
+ADMIN_REGISTER_FAILURE_KEY_PREFIX = "admin_reg_fail"
+
+
 # ── Error Messages ─────────────────────────────────────────────────────────
+# HTTP-layer fallback strings used by the global exception handler.
+# Domain-level user-facing messages live in app/utils/constants.py (ResponseMessages).
+class TokenTypes:
+    BEARER = "bearer"
+
+
 class ErrorMessages:
     INTERNAL_SERVER_ERROR = "An unexpected error occurred. Please try again later."
-    RATE_LIMIT_EXCEEDED = "Too many requests. Please slow down and try again later."
     UNAUTHORIZED = "Authentication required."
     FORBIDDEN = "You do not have permission to perform this action."
     NOT_FOUND = "The requested resource was not found."
+    SERVICE_UNAVAILABLE = "Service temporarily unavailable. Please try again later."

@@ -1,11 +1,11 @@
-"""Feature-level user-facing string constants — all response messages and domain values."""
+"""Feature-level user-facing string constants — all response messages and domain values.
+
+For system-level infrastructure constants (JWT, OTP timing, HTTP helpers) see app/core/constants.py.
+"""
 
 # ── Project metadata ───────────────────────────────────────────────────────
-PROJECT_NAME = "Auth Module"
 VERSION = "1.0.0"
-APP_NAME = "AuthModule"
-SUPPORT_EMAIL = "support@yourdomain.com"
-BRAND_COLOR = "#1a1a2e"
+
 
 # ── Default Roles ──────────────────────────────────────────────────────────
 class RoleNames:
@@ -23,28 +23,41 @@ class RoleNames:
 class Permissions:
     # Users
     USERS_READ = "users:read"
-    USERS_WRITE = "users:write"
+    USERS_CREATE = "users:create"
+    USERS_UPDATE = "users:update"
     USERS_DELETE = "users:delete"
 
     # Roles
     ROLES_READ = "roles:read"
-    ROLES_WRITE = "roles:write"
+    ROLES_CREATE = "roles:create"
+    ROLES_UPDATE = "roles:update"
     ROLES_DELETE = "roles:delete"
 
     # Permissions
     PERMISSIONS_READ = "permissions:read"
-    PERMISSIONS_WRITE = "permissions:write"
+    PERMISSIONS_CREATE = "permissions:create"
+    PERMISSIONS_UPDATE = "permissions:update"
     PERMISSIONS_DELETE = "permissions:delete"
 
     # Profile
     PROFILE_READ = "profile:read"
-    PROFILE_WRITE = "profile:write"
+    PROFILE_UPDATE = "profile:update"
 
     ALL = [
-        USERS_READ, USERS_WRITE, USERS_DELETE,
-        ROLES_READ, ROLES_WRITE, ROLES_DELETE,
-        PERMISSIONS_READ, PERMISSIONS_WRITE, PERMISSIONS_DELETE,
-        PROFILE_READ, PROFILE_WRITE,
+        USERS_READ,
+        USERS_CREATE,
+        USERS_UPDATE,
+        USERS_DELETE,
+        ROLES_READ,
+        ROLES_CREATE,
+        ROLES_UPDATE,
+        ROLES_DELETE,
+        PERMISSIONS_READ,
+        PERMISSIONS_CREATE,
+        PERMISSIONS_UPDATE,
+        PERMISSIONS_DELETE,
+        PROFILE_READ,
+        PROFILE_UPDATE,
     ]
 
 
@@ -52,18 +65,24 @@ class Permissions:
 DEFAULT_ROLE_PERMISSIONS: dict[str, list[str]] = {
     RoleNames.SUPER_ADMIN: Permissions.ALL,
     RoleNames.ADMIN: [
-        Permissions.USERS_READ, Permissions.USERS_WRITE, Permissions.USERS_DELETE,
+        Permissions.USERS_READ,
+        Permissions.USERS_CREATE,
+        Permissions.USERS_UPDATE,
+        Permissions.USERS_DELETE,
         Permissions.ROLES_READ,
         Permissions.PERMISSIONS_READ,
-        Permissions.PROFILE_READ, Permissions.PROFILE_WRITE,
+        Permissions.PROFILE_READ,
+        Permissions.PROFILE_UPDATE,
     ],
     RoleNames.MANAGER: [
         Permissions.USERS_READ,
         Permissions.ROLES_READ,
-        Permissions.PROFILE_READ, Permissions.PROFILE_WRITE,
+        Permissions.PROFILE_READ,
+        Permissions.PROFILE_UPDATE,
     ],
     RoleNames.USER: [
-        Permissions.PROFILE_READ, Permissions.PROFILE_WRITE,
+        Permissions.PROFILE_READ,
+        Permissions.PROFILE_UPDATE,
     ],
 }
 
@@ -114,6 +133,14 @@ class ErrorCodes:
 
     # Admin
     INVALID_ADMIN_SECRET = "invalid_admin_secret"
+    ADMIN_IP_LOCKED = "admin_ip_locked"
+
+    # Profile
+    INCORRECT_CURRENT_PASSWORD = "incorrect_current_password"
+    SAME_PASSWORD = "same_password"
+
+    # Permissions sync
+    PERMISSIONS_CHANGED = "permissions_changed"
 
 
 # ── Response Messages ──────────────────────────────────────────────────────
@@ -132,6 +159,7 @@ class ResponseMessages:
     # Errors — Auth
     INVALID_CREDENTIALS = "Invalid email or password."
     INVALID_TOKEN = "Invalid or expired token."
+    INVALID_RESET_TOKEN = "Your password reset link has expired. Please request a new OTP."
     INVALID_TOKEN_SCOPE = "Token scope is invalid for this operation."
     TOKEN_BLACKLISTED = "Token has been revoked. Please log in again."
     EMAIL_ALREADY_EXISTS = "An account with this email already exists."
@@ -142,12 +170,15 @@ class ResponseMessages:
     OTP_RESEND_LIMIT = "Maximum OTP resend limit reached. Please try again later."
     OTP_ALREADY_USED = "This OTP has already been used."
     INVALID_ADMIN_SECRET = "Invalid admin secret key."
+    ADMIN_IP_LOCKED = "Too many failed attempts. Admin registration from this IP is temporarily locked."
     REFRESH_TOKEN_INVALID = "Invalid or expired refresh token."
 
     # Errors — Users
     USER_NOT_FOUND = "User not found."
     USER_DELETED = "User deleted successfully."
     CANNOT_DELETE_SELF = "You cannot delete your own account."
+    INCORRECT_CURRENT_PASSWORD = "Current password is incorrect."
+    SAME_PASSWORD = "New password cannot be the same as your current password."
 
     # Errors — Roles & Permissions
     ROLE_NOT_FOUND = "Role not found."
@@ -159,9 +190,23 @@ class ResponseMessages:
     ROLE_NOT_ASSIGNED = "This role is not assigned to the user."
     PERMISSION_NOT_ASSIGNED = "This permission is not assigned to the role."
     CANNOT_DELETE_DEFAULT_ROLE = "Default system roles cannot be deleted."
+    CANNOT_MODIFY_DEFAULT_ROLE = "Default system roles cannot be modified."
+
+    # Admin — role operations
+    ROLE_DELETED = "Role deleted successfully."
+    ROLE_ASSIGNED_TO_USER = "Role assigned to user successfully."
+    ROLE_REVOKED_FROM_USER = "Role revoked from user successfully."
+
+    # Admin — permission operations
+    PERMISSION_DELETED = "Permission deleted successfully."
+    PERMISSION_ASSIGNED_TO_ROLE = "Permission assigned to role successfully."
+    PERMISSION_REVOKED_FROM_ROLE = "Permission revoked from role successfully."
 
     # Access control
     ADMIN_ONLY = "Admin access required."
     FORBIDDEN = "You do not have permission to perform this action."
     PERMISSION_DENIED = "You lack the required permission: {permission}."
     ROLE_DENIED = "You lack the required role: {role}."
+
+    # Permissions sync
+    PERMISSIONS_CHANGED = "Your permissions have changed. Please re-authenticate."

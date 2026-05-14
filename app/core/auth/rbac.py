@@ -1,31 +1,20 @@
-"""RBAC dependency factories — reusable role and permission enforcement for any route."""
+"""RBAC dependency factories — reusable role and permission enforcement for any route.
 
-from collections.abc import Callable
+Permissions are checked via exact string match only (e.g. "roles:read").
+Higher-privilege actions do NOT automatically grant lower ones — each
+permission must be explicitly assigned to a role.
+"""
 
-from fastapi import Depends, HTTPException, Request, status
+from collections.abc import Awaitable, Callable
 
-from app.utils.constants import ResponseMessages
+from fastapi import Depends, HTTPException, status
 
-
-def _get_token_payload(request: Request) -> dict:
-    """Extract the pre-validated JWT payload from request state.
-
-    The AuthMiddleware populates request.state.token_payload before any route
-    handler is called, so this function never re-decodes the token.
-
-    Raises:
-        HTTPException 401: If the payload is absent (unauthenticated request).
-    """
-    payload = getattr(request.state, "token_payload", None)
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={"success": False, "message": ResponseMessages.INVALID_TOKEN},
-        )
-    return payload
+from app.core.auth.dependencies import get_current_user_payload
+from app.core.auth.jwt_types import AccessTokenPayload
+from app.utils.constants import ErrorCodes, ResponseMessages
 
 
-def require_role(role: str) -> Callable:
+def require_role(role: str) -> Callable[..., Awaitable[None]]:
     """Return a FastAPI dependency that enforces a single required role.
 
     Usage:
@@ -38,7 +27,7 @@ def require_role(role: str) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_roles: list[str] = payload.get("roles", [])
         if role not in user_roles:
             raise HTTPException(
@@ -46,13 +35,14 @@ def require_role(role: str) -> Callable:
                 detail={
                     "success": False,
                     "message": ResponseMessages.ROLE_DENIED.format(role=role),
+                    "error_code": ErrorCodes.FORBIDDEN,
                 },
             )
 
     return _dependency
 
 
-def require_any_role(roles: list[str]) -> Callable:
+def require_any_role(roles: list[str]) -> Callable[..., Awaitable[None]]:
     """Return a dependency that passes if the user holds AT LEAST ONE of the given roles.
 
     Usage:
@@ -65,18 +55,22 @@ def require_any_role(roles: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_roles: list[str] = payload.get("roles", [])
         if not any(r in user_roles for r in roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"success": False, "message": ResponseMessages.FORBIDDEN},
+                detail={
+                    "success": False,
+                    "message": ResponseMessages.FORBIDDEN,
+                    "error_code": ErrorCodes.FORBIDDEN,
+                },
             )
 
     return _dependency
 
 
-def require_permission(permission: str) -> Callable:
+def require_permission(permission: str) -> Callable[..., Awaitable[None]]:
     """Return a dependency that enforces a single fine-grained permission.
 
     Usage:
@@ -89,7 +83,7 @@ def require_permission(permission: str) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         if permission not in user_permissions:
             raise HTTPException(
@@ -97,13 +91,14 @@ def require_permission(permission: str) -> Callable:
                 detail={
                     "success": False,
                     "message": ResponseMessages.PERMISSION_DENIED.format(permission=permission),
+                    "error_code": ErrorCodes.FORBIDDEN,
                 },
             )
 
     return _dependency
 
 
-def require_any_permission(permissions: list[str]) -> Callable:
+def require_any_permission(permissions: list[str]) -> Callable[..., Awaitable[None]]:
     """Return a dependency that passes if the user holds AT LEAST ONE of the given permissions.
 
     Args:
@@ -113,18 +108,22 @@ def require_any_permission(permissions: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         if not any(p in user_permissions for p in permissions):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail={"success": False, "message": ResponseMessages.FORBIDDEN},
+                detail={
+                    "success": False,
+                    "message": ResponseMessages.FORBIDDEN,
+                    "error_code": ErrorCodes.FORBIDDEN,
+                },
             )
 
     return _dependency
 
 
-def require_all_permissions(permissions: list[str]) -> Callable:
+def require_all_permissions(permissions: list[str]) -> Callable[..., Awaitable[None]]:
     """Return a dependency that passes only if the user holds ALL given permissions.
 
     Args:
@@ -134,7 +133,7 @@ def require_all_permissions(permissions: list[str]) -> Callable:
         FastAPI dependency function.
     """
 
-    async def _dependency(payload: dict = Depends(_get_token_payload)) -> None:
+    async def _dependency(payload: AccessTokenPayload = Depends(get_current_user_payload)) -> None:
         user_permissions: list[str] = payload.get("permissions", [])
         missing = [p for p in permissions if p not in user_permissions]
         if missing:
@@ -143,6 +142,7 @@ def require_all_permissions(permissions: list[str]) -> Callable:
                 detail={
                     "success": False,
                     "message": ResponseMessages.PERMISSION_DENIED.format(permission=", ".join(missing)),
+                    "error_code": ErrorCodes.FORBIDDEN,
                 },
             )
 

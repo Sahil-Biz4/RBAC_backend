@@ -4,82 +4,59 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import and_, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
-from app.models.associations import RolePermission, UserRole
+from app.models.associations import UserRole
 from app.models.email_otp import EmailOtp
-from app.models.refresh_token import RefreshToken
+from app.models.loader_strategies import USER_WITH_ROLES_AND_PERMISSIONS as _USER_WITH_ROLES_AND_PERMISSIONS
 from app.models.role import Role
 from app.models.user import User
 
 
+def extract_roles_and_permissions(user: User) -> tuple[list[str], list[str]]:
+    """Extract roles and deduplicated permissions from an already-loaded User object."""
+    roles: list[str] = [ur.role.name for ur in user.user_roles]
+    permissions: set[str] = {rp.permission.name for ur in user.user_roles for rp in ur.role.role_permissions}
+    return roles, list(permissions)
+
+
 async def get_user_by_email(db: AsyncSession, email: str) -> User | None:
-    """Fetch a user by email address, eagerly loading their roles."""
+    """Fetch an active, non-deleted user by email address, eagerly loading their roles."""
     result = await db.execute(
-        select(User)
-        .where(User.email == email)
-        .options(selectinload(User.user_roles).selectinload(UserRole.role).selectinload(Role.role_permissions))
+        select(User).where(User.email == email, User.deleted_at.is_(None)).options(_USER_WITH_ROLES_AND_PERMISSIONS)
     )
     return result.scalars().first()
 
 
 async def get_user_by_id(db: AsyncSession, user_id: int) -> User | None:
-    """Fetch a user by UUID primary key, eagerly loading their roles."""
+    """Fetch an active, non-deleted user by integer primary key, eagerly loading their roles."""
     result = await db.execute(
-        select(User)
-        .where(User.id == user_id)
-        .options(selectinload(User.user_roles).selectinload(UserRole.role).selectinload(Role.role_permissions))
+        select(User).where(User.id == user_id, User.deleted_at.is_(None)).options(_USER_WITH_ROLES_AND_PERMISSIONS)
     )
     return result.scalars().first()
 
 
 async def create_user(db: AsyncSession, name: str, email: str, password_hash: str) -> User:
-    """Insert a new user record and return it."""
+    """Insert a new user record, flush to obtain the primary key, and return it."""
     user = User(name=name, email=email, password_hash=password_hash)
     db.add(user)
-    await db.commit()
+    await db.flush()
     await db.refresh(user)
     return user
 
 
 async def assign_role_to_user(db: AsyncSession, user_id: int, role_name: str) -> None:
-    """Assign a named role to a user. No-ops if already assigned."""
+    """Assign a named role to a user. No-ops if already assigned. Flushes but does not commit."""
     role_result = await db.execute(select(Role).where(Role.name == role_name))
     role = role_result.scalars().first()
     if not role:
         return
 
-    existing = await db.execute(
-        select(UserRole).where(and_(UserRole.user_id == user_id, UserRole.role_id == role.id))
-    )
+    existing = await db.execute(select(UserRole).where(and_(UserRole.user_id == user_id, UserRole.role_id == role.id)))
     if existing.scalars().first():
         return
 
     db.add(UserRole(user_id=user_id, role_id=role.id))
-    await db.commit()
-
-
-async def get_user_roles_and_permissions(db: AsyncSession, user_id: int) -> tuple[list[str], list[str]]:
-    """Return (roles, permissions) lists for embedding into a JWT.
-
-    Permissions are deduplicated across all assigned roles.
-    """
-    result = await db.execute(
-        select(UserRole)
-        .where(UserRole.user_id == user_id)
-        .options(selectinload(UserRole.role).selectinload(Role.role_permissions).selectinload(RolePermission.permission))
-    )
-    user_roles = result.scalars().all()
-
-    roles: list[str] = []
-    permissions: set[str] = set()
-
-    for ur in user_roles:
-        roles.append(ur.role.name)
-        for rp in ur.role.role_permissions:
-            permissions.add(rp.permission.name)
-
-    return roles, list(permissions)
+    await db.flush()
 
 
 async def create_email_otp(
@@ -89,11 +66,11 @@ async def create_email_otp(
     purpose: str,
     expire_minutes: int,
 ) -> EmailOtp:
-    """Insert a new OTP record and return it."""
+    """Insert a new OTP record, flush to obtain the primary key, and return it."""
     expires_at = datetime.now(UTC) + timedelta(minutes=expire_minutes)
     otp = EmailOtp(user_id=user_id, otp_hash=otp_hash, purpose=purpose, expires_at=expires_at)
     db.add(otp)
-    await db.commit()
+    await db.flush()
     await db.refresh(otp)
     return otp
 
@@ -148,13 +125,12 @@ async def invalidate_user_otps(db: AsyncSession, user_id: int, purpose: str) -> 
 
 
 async def count_recent_resends(db: AsyncSession, user_id: int, purpose: str, window_minutes: int) -> int:
-    """Count how many OTPs have been sent in the given time window.
-
-    Uses DB-level COUNT aggregation — no rows fetched into Python memory.
-    """
+    """Count how many OTPs have been sent in the given time window."""
     since = datetime.now(UTC) - timedelta(minutes=window_minutes)
     result = await db.execute(
-        select(func.count()).select_from(EmailOtp).where(
+        select(func.count())
+        .select_from(EmailOtp)
+        .where(
             and_(
                 EmailOtp.user_id == user_id,
                 EmailOtp.purpose == purpose,
@@ -163,57 +139,6 @@ async def count_recent_resends(db: AsyncSession, user_id: int, purpose: str, win
         )
     )
     return result.scalar_one()
-
-
-# ── Refresh Token ─────────────────────────────────────────────────────────
-
-async def create_refresh_token_record(
-    db: AsyncSession,
-    user_id: int,
-    jti: str,
-    expire_minutes: int,
-) -> RefreshToken:
-    """Persist a new refresh token JTI and return the record."""
-    expires_at = datetime.now(UTC) + timedelta(minutes=expire_minutes)
-    token = RefreshToken(user_id=user_id, jti=jti, expires_at=expires_at)
-    db.add(token)
-    await db.commit()
-    await db.refresh(token)
-    return token
-
-
-async def get_refresh_token_by_jti(db: AsyncSession, jti: str) -> RefreshToken | None:
-    """Fetch a non-revoked refresh token record by JTI."""
-    result = await db.execute(
-        select(RefreshToken).where(
-            and_(
-                RefreshToken.jti == jti,
-                RefreshToken.is_revoked == False,  # noqa: E712
-            )
-        )
-    )
-    return result.scalars().first()
-
-
-async def revoke_refresh_token(db: AsyncSession, token: RefreshToken) -> None:
-    """Mark a single refresh token as revoked."""
-    token.is_revoked = True
-    await db.commit()
-
-
-async def revoke_all_user_tokens(db: AsyncSession, user_id: int) -> None:
-    """Revoke every active refresh token for a user (bulk UPDATE)."""
-    await db.execute(
-        update(RefreshToken)
-        .where(
-            and_(
-                RefreshToken.user_id == user_id,
-                RefreshToken.is_revoked == False,  # noqa: E712
-            )
-        )
-        .values(is_revoked=True)
-    )
-    await db.commit()
 
 
 async def update_user_password(db: AsyncSession, user: User, new_hash: str) -> None:

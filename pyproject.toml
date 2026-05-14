@@ -31,12 +31,14 @@ ignore = [
     "B008",   # do not perform function calls in argument defaults (FastAPI Depends)
     "RET504", # unnecessary assignment before return
     "UP007",  # use X | Y for union types
+    "RUF012", # mutable class attributes — ClassVar annotation not required here
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = [
     "T20",    # allow print in tests
     "B011",   # allow assert True/False in tests
+    "E402",   # env vars must be set before app imports in conftest
 ]
 "alembic/**/*.py" = [
     "ERA",    # allow commented code in migrations
@@ -52,3 +54,13 @@ lines-after-imports = 2
 quote-style = "double"
 indent-style = "space"
 docstring-code-format = true
+
+# ── Coverage ───────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["app"]
+omit = ["*/alembic/*"]
+
+[tool.coverage.report]
+fail_under = 80
+show_missing = true
+skip_covered = false

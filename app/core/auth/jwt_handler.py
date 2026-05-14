@@ -2,10 +2,12 @@
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from typing import cast
 
 import jwt
 from jwt.exceptions import PyJWTError
 
+from app.core.auth.jwt_types import AccessTokenPayload, PasswordResetTokenPayload, RefreshTokenPayload
 from app.core.config.settings import settings
 from app.core.constants import (
     JWT_SCOPE_ACCESS,
@@ -15,24 +17,33 @@ from app.core.constants import (
 from app.utils.constants import ResponseMessages
 
 
+REFRESH_TOKEN_TTL: int = settings.jwt_refresh_token_expire_minutes * 60
+ACCESS_TOKEN_TTL: int = settings.jwt_access_token_expire_minutes * 60
+
+
 def create_access_token(
     *,
     subject: int | str,
     email: str,
     roles: list[str],
     permissions: list[str],
+    perms_version: int,
     expires_minutes: int | None = None,
 ) -> tuple[str, str]:
     """Create a signed JWT access token embedding roles and permissions.
 
     Roles and permissions are cached in the token so every request avoids
     a DB round-trip for authorization checks. They are refreshed on token renewal.
+    ``perms_version`` is a monotonic counter on the User row — if it mismatches
+    the value in a presented token the request is rejected with 401 so the client
+    immediately re-fetches a fresh token with the updated claims.
 
     Args:
         subject: User ID stored in the 'sub' claim.
         email: User email stored in the 'email' claim.
         roles: List of role names assigned to the user.
         permissions: Flattened list of all permission strings for those roles.
+        perms_version: Current permissions version from the users table.
         expires_minutes: Optional override for expiry. Defaults to settings value.
 
     Returns:
@@ -47,6 +58,7 @@ def create_access_token(
         "email": email,
         "roles": roles,
         "permissions": permissions,
+        "perms_version": perms_version,
         "jti": jti,
         "scope": JWT_SCOPE_ACCESS,
         "exp": int(expire.timestamp()),
@@ -109,44 +121,47 @@ def create_password_reset_token(*, subject: int | str, email: str) -> str:
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
-def decode_token(token: str) -> dict:
+def decode_token(token: str) -> AccessTokenPayload:
     """Decode and verify any JWT token issued by this application.
 
     Raises:
         jwt.PyJWTError: If the token is invalid, expired, or tampered with.
     """
-    return jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm])
+    return cast(AccessTokenPayload, jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]))
 
 
-def decode_refresh_token(token: str) -> dict:
+def decode_refresh_token(token: str) -> RefreshTokenPayload:
     """Decode and verify a refresh token, enforcing the correct scope.
 
     Raises:
         jwt.InvalidTokenError: If token is invalid, expired, or scope is not 'refresh'.
     """
     try:
-        payload = decode_token(token)
+        raw = cast(RefreshTokenPayload, jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]))
     except PyJWTError as exc:
         raise jwt.InvalidTokenError(ResponseMessages.REFRESH_TOKEN_INVALID) from exc
 
-    if payload.get("scope") != JWT_SCOPE_REFRESH:
+    if raw.get("scope") != JWT_SCOPE_REFRESH:
         raise jwt.InvalidTokenError(ResponseMessages.INVALID_TOKEN_SCOPE)
 
-    return payload
+    return raw
 
 
-def decode_password_reset_token(token: str) -> dict:
+def decode_password_reset_token(token: str) -> PasswordResetTokenPayload:
     """Decode and verify a password-reset token, enforcing the correct scope.
 
     Raises:
         jwt.InvalidTokenError: If token is invalid, expired, or scope is not 'password_reset'.
     """
     try:
-        payload = decode_token(token)
+        raw = cast(
+            PasswordResetTokenPayload,
+            jwt.decode(token, settings.jwt_secret_key, algorithms=[settings.jwt_algorithm]),
+        )
     except PyJWTError as exc:
         raise jwt.InvalidTokenError(ResponseMessages.INVALID_TOKEN) from exc
 
-    if payload.get("scope") != JWT_SCOPE_PASSWORD_RESET:
+    if raw.get("scope") != JWT_SCOPE_PASSWORD_RESET:
         raise jwt.InvalidTokenError(ResponseMessages.INVALID_TOKEN_SCOPE)
 
-    return payload
+    return raw
